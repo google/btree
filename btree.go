@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package btree implements arbitrary degree B-trees.
+// Package btree implements B-Trees of arbitrary degree.
 //
 // btree implements an in-memory B-Tree for use as an ordered data structure.
 // It is not meant for persistent storage solutions.
@@ -58,8 +58,8 @@ type items []Item
 // forward.
 func (s *items) insertAt(index int, item Item) {
 	*s = append(*s, nil)
-	for i := len(*s) - 2; i >= index; i-- {
-		(*s)[i+1] = (*s)[i]
+	if index < len(*s) {
+		copy((*s)[index+1:], (*s)[index:])
 	}
 	(*s)[index] = item
 }
@@ -100,8 +100,8 @@ type children []*node
 // forward.
 func (s *children) insertAt(index int, n *node) {
 	*s = append(*s, nil)
-	for i := len(*s) - 2; i >= index; i-- {
-		(*s)[i+1] = (*s)[i]
+	if index < len(*s) {
+		copy((*s)[index+1:], (*s)[index:])
 	}
 	(*s)[index] = n
 }
@@ -125,7 +125,7 @@ func (s *children) pop() (out *node) {
 // node is an internal node in a tree.
 //
 // It must at all times maintain the invariant that either
-//   * len(children) == 0
+//   * len(children) == 0, len(items) unconstrained
 //   * len(children) == len(items) + 1
 type node struct {
 	items    items
@@ -319,8 +319,8 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 //
 // It requires that 'from' and 'to' both return true for values we should hit
 // with the iterator.  It should also be the case that 'from' returns true for
-// values strictly less than or equal to values 'to' returns true for, and 'to'
-// returns true for values strictly greater than or equal to those that 'from'
+// values less than or equal to values 'to' returns true for, and 'to'
+// returns true for values greater than or equal to those that 'from'
 // does.
 func (n *node) iterate(from, to func(Item) bool, iter ItemIterator) bool {
 	for i, item := range n.items {
@@ -435,8 +435,8 @@ func (t *BTree) DeleteMin() Item {
 	return t.deleteItem(nil, removeMin)
 }
 
-// DeleteMax removes an item equal to the passed in item from the tree, returning
-// it.  If no such item exists, returns nil.
+// DeleteMax removes the largest item in the tree and returns it.
+// If no such item exists, returns nil.
 func (t *BTree) DeleteMax() Item {
 	return t.deleteItem(nil, removeMax)
 }
