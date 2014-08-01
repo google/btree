@@ -16,6 +16,35 @@
 //
 // btree implements an in-memory B-Tree for use as an ordered data structure.
 // It is not meant for persistent storage solutions.
+//
+// It has a flatter structure than an equivalent red-black or other binary tree,
+// which in some cases yields better memory usage and/or performance.
+// See some discussion on the matter here:
+//   http://google-opensource.blogspot.com/2013/01/c-containers-that-save-memory-and-time.html
+// Note, though, that this project is in no way related to the C++ B-Tree
+// implmentation written about there.
+//
+// Within this tree, each node contains a slice of items and a (possibly nil)
+// slice of children.  For basic numeric values or raw structs, this can cause
+// efficiency differences when compared to equivalent C++ template code that
+// stores values in arrays within the node:
+//   * Due to the overhead of storing values as interfaces (each
+//     value needs to be stored as the value itself, then 2 words for the
+//     interface pointing to that value and its type), resulting in higher
+//     memory use.
+//   * Since interfaces can point to values anywhere in memory, values are
+//     most likely not stored in contiguous blocks, resulting in a higher
+//     number of cache misses.
+// These issues don't tend to matter, though, when working with strings or other
+// heap-allocated structures, since C++-equivalent structures also must store
+// pointers and also distribute their values across the heap.
+//
+// This implementation is designed to be a drop-in replacement to gollrb.LLRB
+// trees, (http://github.com/petar/gollrb), an excellent and probably the most
+// widely used ordered tree implementation in the Go ecosystem currently.
+// Its functions, therefore, exactly mirror those of
+// llrb.LLRB where possible.  Unlike gollrb, though, we currently don't
+// support storing multiple equivalent values or backwards iteration.
 package btree
 
 import (
@@ -353,30 +382,11 @@ func (n *node) print(w io.Writer, level int) {
 
 // BTree is an implementation of a B-Tree.
 //
-// It has a flatter structure than an equivalent red-black or other binary tree,
-// which in some cases yields better memory usage and/or performance.
-// See some discussion on the matter here:
-//   http://google-opensource.blogspot.com/2013/01/c-containers-that-save-memory-and-time.html
-// Note, though, that this project is in no way related to the C++ B-Tree
-// implmentation written about there.
+// BTree stores Item instances in an ordered structure, allowing easy insertion,
+// removal, and iteration.
 //
-// Within this tree, each node contains a slice of items and a (possibly nil)
-// slice of children.  Since each item is an interface with 2 words, we don't do
-// as well as we would with C++ structures, but we shouldn't be too bad.
-//
-// Also unlike C++, we use slice append to grow our items/children slices right
-// now.  This tends to mean good performance and possibly less memory usage for
-// small nodes, but for large nodes it could cause us to waste space.  We'll
-// review this in a while to see if the complexity of maxing out slice capacity
-// is worth the extra code.
-//
-// BTree is not safe for concurrent mutations by multiple goroutines.
-// Read operations can be done concurrently.
-//
-// This implementation is designed to be a drop-in replacement to gollrb.LLRB
-// trees, probably the most widely used binary tree implementation currently in
-// the Go ecosystem.  Its functions, therefore, exactly mirror those of
-// gollrb.LLRB where possible.
+// Write operations are not safe for concurrent mutation by multiple
+// goroutines, but Read operations are.
 type BTree struct {
 	degree int
 	length int

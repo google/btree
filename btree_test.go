@@ -83,6 +83,34 @@ func TestBTree(t *testing.T) {
 	}
 }
 
+func ExampleBTree() {
+	tr := New(8)
+	for i := Int(0); i < 10; i++ {
+		tr.ReplaceOrInsert(i)
+	}
+	fmt.Println("len:       ", tr.Len())
+	fmt.Println("get3:      ", tr.Get(Int(3)))
+	fmt.Println("get100:    ", tr.Get(Int(100)))
+	fmt.Println("del4:      ", tr.Delete(Int(4)))
+	fmt.Println("del100:    ", tr.Delete(Int(100)))
+	fmt.Println("replace5:  ", tr.ReplaceOrInsert(Int(5)))
+	fmt.Println("replace100:", tr.ReplaceOrInsert(Int(100)))
+	fmt.Println("delmin:    ", tr.DeleteMin())
+	fmt.Println("delmax:    ", tr.DeleteMax())
+	fmt.Println("len:       ", tr.Len())
+	// Output:
+	// len:        10
+	// get3:       3
+	// get100:     <nil>
+	// del4:       4
+	// del100:     <nil>
+	// replace5:   5
+	// replace100: <nil>
+	// delmin:     0
+	// delmax:     100
+	// len:        8
+}
+
 func TestDeleteMin(t *testing.T) {
 	tr := New(3)
 	for _, v := range perm(100) {
