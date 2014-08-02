@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package btree implements B-Trees of arbitrary degree.
+// Package btree implements in-memory B-Trees of arbitrary degree.
 //
 // btree implements an in-memory B-Tree for use as an ordered data structure.
 // It is not meant for persistent storage solutions.
