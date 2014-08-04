@@ -489,8 +489,8 @@ func (t *BTree) AscendLessThan(pivot Item, iterator ItemIterator) {
 		iterator)
 }
 
-// AscendGreaterOrEqual calls the iterator for every value in the tree within the range
-// [greaterOrEqual, last], until iterator returns false.
+// AscendGreaterOrEqual calls the iterator for every value in the tree within
+// the range [pivot, last], until iterator returns false.
 func (t *BTree) AscendGreaterOrEqual(pivot Item, iterator ItemIterator) {
 	if t.root == nil {
 		return
