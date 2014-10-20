@@ -52,6 +52,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Item represents a single object in the tree.
@@ -77,7 +78,9 @@ func New(degree int) *BTree {
 	if degree <= 1 {
 		panic("bad degree")
 	}
-	return &BTree{degree: degree}
+	return &BTree{
+		degree: degree,
+	}
 }
 
 // items stores items in a node.
@@ -166,7 +169,7 @@ type node struct {
 // containing all items/children after it.
 func (n *node) split(i int) (Item, *node) {
 	item := n.items[i]
-	next := &node{}
+	next := nodepool.Get().(*node)
 	next.items = append(next.items, n.items[i+1:]...)
 	n.items = n.items[:i]
 	if len(n.children) > 0 {
@@ -393,6 +396,8 @@ type BTree struct {
 	root   *node
 }
 
+var nodepool = sync.Pool{New: func() interface{} { return &node{} }}
+
 // maxItems returns the max number of items to allow per node.
 func (t *BTree) maxItems() int {
 	return t.degree*2 - 1
@@ -414,17 +419,16 @@ func (t *BTree) ReplaceOrInsert(item Item) Item {
 		panic("nil item being added to BTree")
 	}
 	if t.root == nil {
-		t.root = &node{
-			items: items{item},
-		}
+		t.root = nodepool.Get().(*node)
+		t.root.items = append(t.root.items, item)
 		t.length++
 		return nil
 	} else if len(t.root.items) >= t.maxItems() {
 		item2, second := t.root.split(t.maxItems() / 2)
-		t.root = &node{
-			items:    items{item2},
-			children: children{t.root, second},
-		}
+		oldroot := t.root
+		t.root = nodepool.Get().(*node)
+		t.root.items = append(t.root.items, item2)
+		t.root.children = append(t.root.children, oldroot, second)
 	}
 	out := t.root.insert(item, t.maxItems())
 	if out == nil {
@@ -457,7 +461,11 @@ func (t *BTree) deleteItem(item Item, typ toRemove) Item {
 	}
 	out := t.root.remove(item, t.minItems(), typ)
 	if len(t.root.items) == 0 && len(t.root.children) > 0 {
+		oldroot := t.root
 		t.root = t.root.children[0]
+		oldroot.children = oldroot.children[:0]
+		oldroot.items = oldroot.items[:0]
+		nodepool.Put(oldroot)
 	}
 	if out != nil {
 		t.length--
