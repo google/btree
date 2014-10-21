@@ -192,9 +192,9 @@ func (n *node) maybeSplitChild(i, maxItems int) bool {
 	return true
 }
 
-// insert inserts an item into the node, making sure no nodes in the subtree
-// exceed maxItems items.  It returns the node that was replaced by the given
-// one, or nil if the given one wasn't originally in the subtree.
+// insert inserts an item into the subtree rooted at this node, making sure
+// no nodes in the subtree exceed maxItems items.  Should an equivalent item be
+// be found/replaced by insert, it will be returned.
 func (n *node) insert(item Item, maxItems int) Item {
 	i, found := n.items.find(item)
 	if found {
