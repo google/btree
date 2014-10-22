@@ -52,7 +52,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"sync"
 )
 
 // Item represents a single object in the tree.
@@ -79,7 +78,8 @@ func New(degree int) *BTree {
 		panic("bad degree")
 	}
 	return &BTree{
-		degree: degree,
+		degree:   degree,
+		freelist: make([]*node, 0, 32),
 	}
 }
 
@@ -162,6 +162,7 @@ func (s *children) pop() (out *node) {
 type node struct {
 	items    items
 	children children
+	t        *BTree
 }
 
 // split splits the given node at the given index.  The current node shrinks,
@@ -169,7 +170,7 @@ type node struct {
 // containing all items/children after it.
 func (n *node) split(i int) (Item, *node) {
 	item := n.items[i]
-	next := nodepool.Get().(*node)
+	next := n.t.newNode()
 	next.items = append(next.items, n.items[i+1:]...)
 	n.items = n.items[:i]
 	if len(n.children) > 0 {
@@ -341,6 +342,7 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 		child.items = append(child.items, mergeItem)
 		child.items = append(child.items, mergeChild.items...)
 		child.children = append(child.children, mergeChild.children...)
+		n.t.freeNode(mergeChild)
 	}
 	return n.remove(item, minItems, typ)
 }
@@ -391,12 +393,11 @@ func (n *node) print(w io.Writer, level int) {
 // Write operations are not safe for concurrent mutation by multiple
 // goroutines, but Read operations are.
 type BTree struct {
-	degree int
-	length int
-	root   *node
+	degree   int
+	length   int
+	root     *node
+	freelist []*node
 }
-
-var nodepool = sync.Pool{New: func() interface{} { return &node{} }}
 
 // maxItems returns the max number of items to allow per node.
 func (t *BTree) maxItems() int {
@@ -409,6 +410,29 @@ func (t *BTree) minItems() int {
 	return t.degree - 1
 }
 
+func (t *BTree) newNode() (n *node) {
+	index := len(t.freelist) - 1
+	if index < 0 {
+		return &node{t: t}
+	}
+	t.freelist, n = t.freelist[:index], t.freelist[index]
+	return
+}
+
+func (t *BTree) freeNode(n *node) {
+	if len(t.freelist) < cap(t.freelist) {
+    for i := range n.items {
+      n.items[i] = nil  // clear to allow GC
+    }
+		n.items = n.items[:0]
+    for i := range n.children {
+      n.children[i] = nil  // clear to allow GC
+    }
+		n.children = n.children[:0]
+		t.freelist = append(t.freelist, n)
+	}
+}
+
 // ReplaceOrInsert adds the given item to the tree.  If an item in the tree
 // already equals the given one, it is removed from the tree and returned.
 // Otherwise, nil is returned.
@@ -419,14 +443,14 @@ func (t *BTree) ReplaceOrInsert(item Item) Item {
 		panic("nil item being added to BTree")
 	}
 	if t.root == nil {
-		t.root = nodepool.Get().(*node)
+		t.root = t.newNode()
 		t.root.items = append(t.root.items, item)
 		t.length++
 		return nil
 	} else if len(t.root.items) >= t.maxItems() {
 		item2, second := t.root.split(t.maxItems() / 2)
 		oldroot := t.root
-		t.root = nodepool.Get().(*node)
+		t.root = t.newNode()
 		t.root.items = append(t.root.items, item2)
 		t.root.children = append(t.root.children, oldroot, second)
 	}
@@ -463,9 +487,7 @@ func (t *BTree) deleteItem(item Item, typ toRemove) Item {
 	if len(t.root.items) == 0 && len(t.root.children) > 0 {
 		oldroot := t.root
 		t.root = t.root.children[0]
-		oldroot.children = oldroot.children[:0]
-		oldroot.items = oldroot.items[:0]
-		nodepool.Put(oldroot)
+		t.freeNode(oldroot)
 	}
 	if out != nil {
 		t.length--
