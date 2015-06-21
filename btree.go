@@ -347,21 +347,20 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 	return n.remove(item, minItems, typ)
 }
 
-// iterate provides a simple method for iterating over elements in the tree.
-// It could probably use some work to be extra-efficient (it calls from() a
-// little more than it should), but it works pretty well for now.
+// iterateRange provides a simple method for iterating over all elements in the
+// tree that are within a given range.
 //
 // It requires that 'from' and 'to' both return true for values we should hit
 // with the iterator.  It should also be the case that 'from' returns true for
 // values less than or equal to values 'to' returns true for, and 'to'
 // returns true for values greater than or equal to those that 'from'
 // does.
-func (n *node) iterate(from, to func(Item) bool, iter ItemIterator) bool {
+func (n *node) iterateRange(from, to func(Item) bool, iter ItemIterator) bool {
 	for i, item := range n.items {
 		if !from(item) {
 			continue
 		}
-		if len(n.children) > 0 && !n.children[i].iterate(from, to, iter) {
+		if len(n.children) > 0 && !n.children[i].iterateRange(from, to, iter) {
 			return false
 		}
 		if !to(item) {
@@ -372,7 +371,63 @@ func (n *node) iterate(from, to func(Item) bool, iter ItemIterator) bool {
 		}
 	}
 	if len(n.children) > 0 {
-		return n.children[len(n.children)-1].iterate(from, to, iter)
+		return n.children[len(n.children)-1].iterateRange(from, to, iter)
+	}
+	return true
+}
+
+// iterateFrom provides a simple method for iterating over all elements in the
+// tree after a given item.
+func (n *node) iterateFrom(from func(Item) bool, iter ItemIterator) bool {
+	for i, item := range n.items {
+		if !from(item) {
+			continue
+		}
+		if len(n.children) > 0 && !n.children[i].iterateFrom(from, iter) {
+			return false
+		}
+		if !iter(item) {
+			return false
+		}
+	}
+	if len(n.children) > 0 {
+		return n.children[len(n.children)-1].iterateFrom(from, iter)
+	}
+	return true
+}
+
+// iterateTo provides a simple method for iterating over all elements in the
+// tree before a given item.
+func (n *node) iterateTo(to func(Item) bool, iter ItemIterator) bool {
+	for i, item := range n.items {
+		if len(n.children) > 0 && !n.children[i].iterateTo(to, iter) {
+			return false
+		}
+		if !to(item) {
+			return false
+		}
+		if !iter(item) {
+			return false
+		}
+	}
+	if len(n.children) > 0 {
+		return n.children[len(n.children)-1].iterateTo(to, iter)
+	}
+	return true
+}
+
+// iterate provides a simple method for iterating over all elements in the tree.
+func (n *node) iterate(iter ItemIterator) bool {
+	for i, item := range n.items {
+		if len(n.children) > 0 && !n.children[i].iterate(iter) {
+			return false
+		}
+		if !iter(item) {
+			return false
+		}
+	}
+	if len(n.children) > 0 {
+		return n.children[len(n.children)-1].iterate(iter)
 	}
 	return true
 }
@@ -501,7 +556,7 @@ func (t *BTree) AscendRange(greaterOrEqual, lessThan Item, iterator ItemIterator
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(
+	t.root.iterateRange(
 		func(a Item) bool { return !a.Less(greaterOrEqual) },
 		func(a Item) bool { return a.Less(lessThan) },
 		iterator)
@@ -513,8 +568,7 @@ func (t *BTree) AscendLessThan(pivot Item, iterator ItemIterator) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(
-		func(a Item) bool { return true },
+	t.root.iterateTo(
 		func(a Item) bool { return a.Less(pivot) },
 		iterator)
 }
@@ -525,9 +579,8 @@ func (t *BTree) AscendGreaterOrEqual(pivot Item, iterator ItemIterator) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(
+	t.root.iterateFrom(
 		func(a Item) bool { return !a.Less(pivot) },
-		func(a Item) bool { return true },
 		iterator)
 }
 
@@ -537,10 +590,7 @@ func (t *BTree) Ascend(iterator ItemIterator) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(
-		func(a Item) bool { return true },
-		func(a Item) bool { return true },
-		iterator)
+	t.root.iterate(iterator)
 }
 
 // Get looks for the key item in the tree, returning it.  It returns nil if
