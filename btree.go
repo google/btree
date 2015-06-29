@@ -480,13 +480,13 @@ func (t *BTree) newNode() (n *node) {
 
 func (t *BTree) freeNode(n *node) {
 	if len(t.freelist) < cap(t.freelist) {
-    for i := range n.items {
-      n.items[i] = nil  // clear to allow GC
-    }
+		for i := range n.items {
+			n.items[i] = nil // clear to allow GC
+		}
 		n.items = n.items[:0]
-    for i := range n.children {
-      n.children[i] = nil  // clear to allow GC
-    }
+		for i := range n.children {
+			n.children[i] = nil // clear to allow GC
+		}
 		n.children = n.children[:0]
 		t.freelist = append(t.freelist, n)
 	}
