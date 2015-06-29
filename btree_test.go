@@ -20,11 +20,10 @@ import (
 	"math/rand"
 	"reflect"
 	"testing"
-	"time"
 )
 
 func init() {
-	seed := time.Now().Unix()
+	seed := int64(1)
 	fmt.Println(seed)
 	rand.Seed(seed)
 }
@@ -52,6 +51,24 @@ func all(t *BTree) (out []Item) {
 		return true
 	})
 	return
+}
+
+// populate a btree with n items from perm
+func populate(t *BTree, n int) {
+	insertP := perm(n)
+
+	for _, v := range insertP {
+		t.ReplaceOrInsert(v)
+	}
+
+	return
+}
+
+// generate a populated btree with n items from perm
+func generate(n int) (out *BTree) {
+	out = New(*btreeDegree)
+	populate(out, n)
+	return out
 }
 
 var btreeDegree = flag.Int("degree", 32, "B-Tree degree")
@@ -289,5 +306,81 @@ func BenchmarkGet(b *testing.B) {
 				return
 			}
 		}
+	}
+}
+
+func BenchmarkIterateAscend(b *testing.B) {
+	tr := generate(benchmarkTreeSize)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		expecting := Int(0)
+
+		tr.Ascend(func(a Item) bool {
+			if a != expecting {
+				b.Errorf("Item(%d) != %d", a, expecting)
+			}
+
+			expecting += 1
+			return true
+		})
+	}
+}
+
+func BenchmarkIterateAscendLessThan(b *testing.B) {
+	tr := generate(benchmarkTreeSize)
+	pivot := Int(benchmarkTreeSize / 2)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		expecting := Int(0)
+
+		tr.AscendLessThan(pivot, func(a Item) bool {
+			if a != expecting {
+				b.Errorf("Item(%d) != %d", a, expecting)
+			}
+
+			expecting += 1
+			return true
+		})
+	}
+}
+
+func BenchmarkIterateAscendGreaterOrEqual(b *testing.B) {
+	tr := generate(benchmarkTreeSize)
+	pivot := Int(benchmarkTreeSize / 2)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		expecting := pivot
+
+		tr.AscendGreaterOrEqual(pivot, func(a Item) bool {
+			if a != expecting {
+				b.Errorf("Item(%d) != %d", a, expecting)
+			}
+
+			expecting += 1
+			return true
+		})
+	}
+}
+
+func BenchmarkIterateAscendRange(b *testing.B) {
+	tr := generate(benchmarkTreeSize)
+	from := Int(benchmarkTreeSize / 3)
+	to := from * 2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		expecting := from
+
+		tr.AscendRange(from, to, func(a Item) bool {
+			if a != expecting {
+				b.Errorf("Item(%d) != %d", a, expecting)
+			}
+
+			expecting += 1
+			return true
+		})
 	}
 }
