@@ -356,22 +356,24 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 // returns true for values greater than or equal to those that 'from'
 // does.
 func (n *node) iterateRange(from, to Item, iter ItemIterator) bool {
-	for i, item := range n.items {
-		if item.Less(from) {
-			continue
-		}
-		if len(n.children) > 0 && !n.children[i].iterateRange(from, to, iter) {
+	ilen := len(n.items)
+	clen := len(n.children)
+	index, _ := n.items.find(from)
+
+	for index < ilen {
+		if clen > 0 && !n.children[index].iterateRange(from, to, iter) {
 			return false
 		}
-		if !item.Less(to) {
+		if !n.items[index].Less(to) {
 			return false
 		}
-		if !iter(item) {
+		if !iter(n.items[index]) {
 			return false
 		}
+		index++
 	}
-	if len(n.children) > 0 {
-		return n.children[len(n.children)-1].iterateRange(from, to, iter)
+	if clen > 0 {
+		return n.children[clen-1].iterateRange(from, to, iter)
 	}
 	return true
 }
@@ -379,19 +381,21 @@ func (n *node) iterateRange(from, to Item, iter ItemIterator) bool {
 // iterateFrom provides a simple method for iterating over all elements in the
 // tree after a given item.
 func (n *node) iterateFrom(from Item, iter ItemIterator) bool {
-	for i, item := range n.items {
-		if item.Less(from) {
-			continue
-		}
-		if len(n.children) > 0 && !n.children[i].iterateFrom(from, iter) {
+	ilen := len(n.items)
+	clen := len(n.children)
+	index, _ := n.items.find(from)
+
+	for index < ilen {
+		if clen > 0 && !n.children[index].iterateFrom(from, iter) {
 			return false
 		}
-		if !iter(item) {
+		if !iter(n.items[index]) {
 			return false
 		}
+		index++
 	}
-	if len(n.children) > 0 {
-		return n.children[len(n.children)-1].iterateFrom(from, iter)
+	if clen > 0 {
+		return n.children[clen-1].iterateFrom(from, iter)
 	}
 	return true
 }
