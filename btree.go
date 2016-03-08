@@ -90,6 +90,7 @@ func (f *FreeList) newNode(t *BTree) (n *node) {
 		return &node{t: t}
 	}
 	f.freelist, n = f.freelist[:index], f.freelist[index]
+	n.t = t
 	return
 }
 
@@ -103,6 +104,7 @@ func (f *FreeList) freeNode(n *node) {
 			n.children[i] = nil // clear to allow GC
 		}
 		n.children = n.children[:0]
+		n.t = nil // clear to allow GC
 		f.freelist = append(f.freelist, n)
 	}
 }
