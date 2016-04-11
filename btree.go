@@ -64,38 +64,35 @@ type Item interface {
 	Less(than Item) bool
 }
 
+const (
+	DefaultFreeListSize = 32
+)
+
 // FreeList represents a free list of btree nodes. By default each
 // BTree has its own FreeList, but multiple BTrees can share the same
 // FreeList.
+// Two Btrees using the same freelist are not safe for concurrent write access.
 type FreeList struct {
 	freelist []*node
 }
 
-func NewFreeList() *FreeList {
-	return &FreeList{freelist: make([]*node, 0, 32)}
+// NewFreeList creates a new free list.
+// size is the maximum size of the returned free list.
+func NewFreeList(size int) *FreeList {
+	return &FreeList{freelist: make([]*node, 0, size)}
 }
 
-func (f *FreeList) newNode(t *BTree) (n *node) {
+func (f *FreeList) newNode() (n *node) {
 	index := len(f.freelist) - 1
 	if index < 0 {
-		return &node{t: t}
+		return new(node)
 	}
 	f.freelist, n = f.freelist[:index], f.freelist[index]
-	n.t = t
 	return
 }
 
 func (f *FreeList) freeNode(n *node) {
 	if len(f.freelist) < cap(f.freelist) {
-		for i := range n.items {
-			n.items[i] = nil // clear to allow GC
-		}
-		n.items = n.items[:0]
-		for i := range n.children {
-			n.children[i] = nil // clear to allow GC
-		}
-		n.children = n.children[:0]
-		n.t = nil // clear to allow GC
 		f.freelist = append(f.freelist, n)
 	}
 }
@@ -110,7 +107,7 @@ type ItemIterator func(i Item) bool
 // New(2), for example, will create a 2-3-4 tree (each node contains 1-3 items
 // and 2-4 children).
 func New(degree int) *BTree {
-	return NewWithFreeList(degree, NewFreeList())
+	return NewWithFreeList(degree, NewFreeList(DefaultFreeListSize))
 }
 
 // NewWithFreeList creates a new B-Tree that uses the given node free list.
@@ -451,11 +448,22 @@ func (t *BTree) minItems() int {
 	return t.degree - 1
 }
 
-func (t *BTree) newNode() *node {
-	return t.freelist.newNode(t)
+func (t *BTree) newNode() (n *node) {
+	n = t.freelist.newNode()
+	n.t = t
+	return
 }
 
 func (t *BTree) freeNode(n *node) {
+	for i := range n.items {
+		n.items[i] = nil // clear to allow GC
+	}
+	n.items = n.items[:0]
+	for i := range n.children {
+		n.children[i] = nil // clear to allow GC
+	}
+	n.children = n.children[:0]
+	n.t = nil // clear to allow GC
 	t.freelist.freeNode(n)
 }
 
