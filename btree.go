@@ -64,6 +64,39 @@ type Item interface {
 	Less(than Item) bool
 }
 
+const (
+	DefaultFreeListSize = 32
+)
+
+// FreeList represents a free list of btree nodes. By default each
+// BTree has its own FreeList, but multiple BTrees can share the same
+// FreeList.
+// Two Btrees using the same freelist are not safe for concurrent write access.
+type FreeList struct {
+	freelist []*node
+}
+
+// NewFreeList creates a new free list.
+// size is the maximum size of the returned free list.
+func NewFreeList(size int) *FreeList {
+	return &FreeList{freelist: make([]*node, 0, size)}
+}
+
+func (f *FreeList) newNode() (n *node) {
+	index := len(f.freelist) - 1
+	if index < 0 {
+		return new(node)
+	}
+	f.freelist, n = f.freelist[:index], f.freelist[index]
+	return
+}
+
+func (f *FreeList) freeNode(n *node) {
+	if len(f.freelist) < cap(f.freelist) {
+		f.freelist = append(f.freelist, n)
+	}
+}
+
 // ItemIterator allows callers of Ascend* to iterate in-order over portions of
 // the tree.  When this function returns false, iteration will stop and the
 // associated Ascend* function will immediately return.
@@ -74,12 +107,17 @@ type ItemIterator func(i Item) bool
 // New(2), for example, will create a 2-3-4 tree (each node contains 1-3 items
 // and 2-4 children).
 func New(degree int) *BTree {
+	return NewWithFreeList(degree, NewFreeList(DefaultFreeListSize))
+}
+
+// NewWithFreeList creates a new B-Tree that uses the given node free list.
+func NewWithFreeList(degree int, f *FreeList) *BTree {
 	if degree <= 1 {
 		panic("bad degree")
 	}
 	return &BTree{
 		degree:   degree,
-		freelist: make([]*node, 0, 32),
+		freelist: f,
 	}
 }
 
@@ -396,7 +434,7 @@ type BTree struct {
 	degree   int
 	length   int
 	root     *node
-	freelist []*node
+	freelist *FreeList
 }
 
 // maxItems returns the max number of items to allow per node.
@@ -411,26 +449,22 @@ func (t *BTree) minItems() int {
 }
 
 func (t *BTree) newNode() (n *node) {
-	index := len(t.freelist) - 1
-	if index < 0 {
-		return &node{t: t}
-	}
-	t.freelist, n = t.freelist[:index], t.freelist[index]
+	n = t.freelist.newNode()
+	n.t = t
 	return
 }
 
 func (t *BTree) freeNode(n *node) {
-	if len(t.freelist) < cap(t.freelist) {
-    for i := range n.items {
-      n.items[i] = nil  // clear to allow GC
-    }
-		n.items = n.items[:0]
-    for i := range n.children {
-      n.children[i] = nil  // clear to allow GC
-    }
-		n.children = n.children[:0]
-		t.freelist = append(t.freelist, n)
+	for i := range n.items {
+		n.items[i] = nil // clear to allow GC
 	}
+	n.items = n.items[:0]
+	for i := range n.children {
+		n.children[i] = nil // clear to allow GC
+	}
+	n.children = n.children[:0]
+	n.t = nil // clear to allow GC
+	t.freelist.freeNode(n)
 }
 
 // ReplaceOrInsert adds the given item to the tree.  If an item in the tree
