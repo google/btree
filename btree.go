@@ -272,6 +272,34 @@ func (n *node) get(key Item) Item {
 	return nil
 }
 
+// min returns the first item in the subtree.
+func min(n *node) Item {
+	if n == nil {
+		return nil
+	}
+	for len(n.children) > 0 {
+		n = n.children[0]
+	}
+	if len(n.items) == 0 {
+		return nil
+	}
+	return n.items[0]
+}
+
+// max returns the last item in the subtree.
+func max(n *node) Item {
+	if n == nil {
+		return nil
+	}
+	for len(n.children) > 0 {
+		n = n.children[len(n.children)-1]
+	}
+	if len(n.items) == 0 {
+		return nil
+	}
+	return n.items[len(n.items)-1]
+}
+
 // toRemove details what item to remove in a node.remove call.
 type toRemove int
 
@@ -584,6 +612,16 @@ func (t *BTree) Get(key Item) Item {
 		return nil
 	}
 	return t.root.get(key)
+}
+
+// Min returns the smallest item in the tree, or nil if the tree is empty.
+func (t *BTree) Min() Item {
+	return min(t.root)
+}
+
+// Max returns the largest item in the tree, or nil if the tree is empty.
+func (t *BTree) Max() Item {
+	return max(t.root)
 }
 
 // Has returns true if the given key is in the tree.

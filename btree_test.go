@@ -60,6 +60,12 @@ func TestBTree(t *testing.T) {
 	tr := New(*btreeDegree)
 	const treeSize = 10000
 	for i := 0; i < 10; i++ {
+		if min := tr.Min(); min != nil {
+			t.Fatalf("empty min, got %+v", min)
+		}
+		if max := tr.Max(); max != nil {
+			t.Fatalf("empty max, got %+v", max)
+		}
 		for _, item := range perm(treeSize) {
 			if x := tr.ReplaceOrInsert(item); x != nil {
 				t.Fatal("insert found item", item)
@@ -69,6 +75,12 @@ func TestBTree(t *testing.T) {
 			if x := tr.ReplaceOrInsert(item); x == nil {
 				t.Fatal("insert didn't find item", item)
 			}
+		}
+		if min, want := tr.Min(), Item(Int(0)); min != want {
+			t.Fatalf("min: want %+v, got %+v", want, min)
+		}
+		if max, want := tr.Max(), Item(Int(treeSize-1)); max != want {
+			t.Fatalf("max: want %+v, got %+v", want, max)
 		}
 		got := all(tr)
 		want := rang(treeSize)
@@ -98,7 +110,9 @@ func ExampleBTree() {
 	fmt.Println("del100:    ", tr.Delete(Int(100)))
 	fmt.Println("replace5:  ", tr.ReplaceOrInsert(Int(5)))
 	fmt.Println("replace100:", tr.ReplaceOrInsert(Int(100)))
+	fmt.Println("min:       ", tr.Min())
 	fmt.Println("delmin:    ", tr.DeleteMin())
+	fmt.Println("max:       ", tr.Max())
 	fmt.Println("delmax:    ", tr.DeleteMax())
 	fmt.Println("len:       ", tr.Len())
 	// Output:
@@ -109,7 +123,9 @@ func ExampleBTree() {
 	// del100:     <nil>
 	// replace5:   5
 	// replace100: <nil>
+	// min:        0
 	// delmin:     0
+	// max:        100
 	// delmax:     100
 	// len:        8
 }
