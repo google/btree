@@ -138,6 +138,7 @@ func (s *items) insertAt(index int, item Item) {
 // back.
 func (s *items) removeAt(index int) Item {
 	item := (*s)[index]
+	(*s)[index] = nil
 	copy((*s)[index:], (*s)[index+1:])
 	*s = (*s)[:len(*s)-1]
 	return item
@@ -146,7 +147,9 @@ func (s *items) removeAt(index int) Item {
 // pop removes and returns the last element in the list.
 func (s *items) pop() (out Item) {
 	index := len(*s) - 1
-	out, *s = (*s)[index], (*s)[:index]
+	out = (*s)[index]
+	(*s)[index] = nil
+	*s = (*s)[:index]
 	return
 }
 
@@ -180,6 +183,7 @@ func (s *children) insertAt(index int, n *node) {
 // back.
 func (s *children) removeAt(index int) *node {
 	n := (*s)[index]
+	(*s)[index] = nil
 	copy((*s)[index:], (*s)[index+1:])
 	*s = (*s)[:len(*s)-1]
 	return n
@@ -188,7 +192,9 @@ func (s *children) removeAt(index int) *node {
 // pop removes and returns the last element in the list.
 func (s *children) pop() (out *node) {
 	index := len(*s) - 1
-	out, *s = (*s)[index], (*s)[:index]
+	out = (*s)[index]
+	(*s)[index] = nil
+	*s = (*s)[:index]
 	return
 }
 
