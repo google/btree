@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 )
@@ -404,6 +405,159 @@ func BenchmarkGet(b *testing.B) {
 			if i >= b.N {
 				return
 			}
+		}
+	}
+}
+
+type byInts []Item
+
+func (a byInts) Len() int {
+	return len(a)
+}
+
+func (a byInts) Less(i, j int) bool {
+	return a[i].(Int) < a[j].(Int)
+}
+
+func (a byInts) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+func BenchmarkAscend(b *testing.B) {
+	arr := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, v := range arr {
+		tr.ReplaceOrInsert(v)
+	}
+	sort.Sort(byInts(arr))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		j := 0
+		tr.Ascend(func(item Item) bool {
+			if item.(Int) != arr[j].(Int) {
+				b.Fatalf("mismatch: expected: %v, got %v", arr[j].(Int), item.(Int))
+			}
+			j++
+			return true
+		})
+	}
+}
+
+func BenchmarkDescend(b *testing.B) {
+	arr := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, v := range arr {
+		tr.ReplaceOrInsert(v)
+	}
+	sort.Sort(byInts(arr))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		j := len(arr) - 1
+		tr.Descend(func(item Item) bool {
+			if item.(Int) != arr[j].(Int) {
+				b.Fatalf("mismatch: expected: %v, got %v", arr[j].(Int), item.(Int))
+			}
+			j--
+			return true
+		})
+	}
+}
+func BenchmarkAscendRange(b *testing.B) {
+	arr := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, v := range arr {
+		tr.ReplaceOrInsert(v)
+	}
+	sort.Sort(byInts(arr))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		j := 100
+		tr.AscendRange(Int(100), arr[len(arr)-100], func(item Item) bool {
+			if item.(Int) != arr[j].(Int) {
+				b.Fatalf("mismatch: expected: %v, got %v", arr[j].(Int), item.(Int))
+			}
+			j++
+			return true
+		})
+		if j != len(arr)-100 {
+			b.Fatalf("expected: %v, got %v", len(arr)-100, j)
+		}
+	}
+}
+
+func BenchmarkDescendRange(b *testing.B) {
+	arr := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, v := range arr {
+		tr.ReplaceOrInsert(v)
+	}
+	sort.Sort(byInts(arr))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		j := len(arr) - 100
+		tr.DescendRange(arr[len(arr)-100], Int(100), func(item Item) bool {
+			if item.(Int) != arr[j].(Int) {
+				b.Fatalf("mismatch: expected: %v, got %v", arr[j].(Int), item.(Int))
+			}
+			j--
+			return true
+		})
+		if j != 100 {
+			b.Fatalf("expected: %v, got %v", len(arr)-100, j)
+		}
+	}
+}
+func BenchmarkAscendGreaterOrEqual(b *testing.B) {
+	arr := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, v := range arr {
+		tr.ReplaceOrInsert(v)
+	}
+	sort.Sort(byInts(arr))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		j := 100
+		k := 0
+		tr.AscendGreaterOrEqual(Int(100), func(item Item) bool {
+			if item.(Int) != arr[j].(Int) {
+				b.Fatalf("mismatch: expected: %v, got %v", arr[j].(Int), item.(Int))
+			}
+			j++
+			k++
+			return true
+		})
+		if j != len(arr) {
+			b.Fatalf("expected: %v, got %v", len(arr), j)
+		}
+		if k != len(arr)-100 {
+			b.Fatalf("expected: %v, got %v", len(arr)-100, k)
+		}
+	}
+}
+func BenchmarkDescendLessOrEqual(b *testing.B) {
+	arr := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, v := range arr {
+		tr.ReplaceOrInsert(v)
+	}
+	sort.Sort(byInts(arr))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		j := len(arr) - 100
+		k := len(arr)
+		tr.DescendLessOrEqual(arr[len(arr)-100], func(item Item) bool {
+			if item.(Int) != arr[j].(Int) {
+				b.Fatalf("mismatch: expected: %v, got %v", arr[j].(Int), item.(Int))
+			}
+			j--
+			k--
+			return true
+		})
+		if j != -1 {
+			b.Fatalf("expected: %v, got %v", -1, j)
+		}
+		if k != 99 {
+			b.Fatalf("expected: %v, got %v", 99, k)
 		}
 	}
 }
