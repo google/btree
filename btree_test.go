@@ -30,10 +30,38 @@ func init() {
 	rand.Seed(seed)
 }
 
+func sorted(orig []Item) []Item {
+	result := make([]Item, len(orig))
+	copy(result, orig)
+	sort.Sort(byInts(result))
+	return result
+}
+
+func difference(orig, subtract []Item) (result []Item) {
+	var idx int
+	subLen := len(subtract)
+	for _, item := range orig {
+		for ; idx < subLen && subtract[idx].Less(item); idx++ {
+		}
+		if idx >= subLen || item != subtract[idx] {
+			result = append(result, item)
+		}
+	}
+	return
+}
+
 // perm returns a random permutation of n Int items in the range [0, n).
 func perm(n int) (out []Item) {
 	for _, v := range rand.Perm(n) {
 		out = append(out, Int(v))
+	}
+	return
+}
+
+// permf applies f to each element in a random permutation of range [0, n).
+func permf(n int, f func(i int) int) (out []Item) {
+	for _, v := range rand.Perm(n) {
+		out = append(out, Int(f(v)))
 	}
 	return
 }
@@ -46,8 +74,12 @@ func rang(n int) (out []Item) {
 	return
 }
 
+type ascender interface {
+	Ascend(ItemIterator)
+}
+
 // all extracts all items from a tree in order as a slice.
-func all(t *BTree) (out []Item) {
+func all(t ascender) (out []Item) {
 	t.Ascend(func(a Item) bool {
 		out = append(out, a)
 		return true
@@ -73,6 +105,83 @@ func allrev(t *BTree) (out []Item) {
 }
 
 var btreeDegree = flag.Int("degree", 32, "B-Tree degree")
+
+func TestImmutableBTree(t *testing.T) {
+	builder := NewBuilder(NewImmutable(4))
+	const treeSize = 1024
+	const sizeIncr = 32
+	for i := 0; i < 10; i++ {
+		if min := builder.Min(); min != nil {
+			t.Fatalf("empty min, got %+v", min)
+		}
+		if max := builder.Max(); max != nil {
+			t.Fatalf("empty max, got %+v", max)
+		}
+		trees := make([]*ImmutableBTree, treeSize/sizeIncr)
+		aPerm := perm(treeSize)
+		for i, item := range aPerm {
+			if i%sizeIncr == 0 {
+				trees[i/sizeIncr] = builder.Build()
+			}
+			if x := builder.ReplaceOrInsert(item); x != nil {
+				t.Fatal("insert found item", item)
+			}
+		}
+		for _, item := range perm(treeSize) {
+			if x := builder.ReplaceOrInsert(item); x == nil {
+				t.Fatal("insert didn't find item", item)
+			}
+		}
+		fullTree := builder.Build()
+		if min, want := fullTree.Min(), Item(Int(0)); min != want {
+			t.Fatalf("min: want %+v, got %+v", want, min)
+		}
+		if max, want := fullTree.Max(), Item(Int(treeSize-1)); max != want {
+			t.Fatalf("max: want %+v, got %+v", want, max)
+		}
+		got := all(fullTree)
+		want := rang(treeSize)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+		}
+		// Now check partial trees
+		for i, partialTree := range trees {
+			got := all(partialTree)
+			if i == 0 {
+				if len(got) > 0 {
+					t.Fatalf("Expected empty, got %v", got)
+				}
+			} else {
+				want := sorted(aPerm[:(i * sizeIncr)])
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+				}
+			}
+		}
+		builder.Set(fullTree)
+		aPerm = perm(treeSize)
+		for i, item := range aPerm {
+			if i%sizeIncr == 0 {
+				trees[i/sizeIncr] = builder.Build()
+			}
+			if x := builder.Delete(item); x == nil {
+				t.Fatalf("didn't find %v", item)
+			}
+		}
+		// Now check partial trees
+		allNumbers := rang(treeSize)
+		for i, partialTree := range trees {
+			got := all(partialTree)
+			want := difference(allNumbers, sorted(aPerm[:(i*sizeIncr)]))
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+			}
+		}
+		if got = all(builder); len(got) > 0 {
+			t.Fatalf("some left!: %v", got)
+		}
+	}
+}
 
 func TestBTree(t *testing.T) {
 	tr := New(*btreeDegree)
@@ -121,6 +230,223 @@ func TestBTree(t *testing.T) {
 			t.Fatalf("some left!: %v", got)
 		}
 	}
+}
+
+func TestImmutableBTreeBuilderReuse(t *testing.T) {
+	builder := NewBuilder(NewImmutable(3))
+	for i := 0; i < 1000; i += 2 {
+		builder.ReplaceOrInsert(Int(i))
+	}
+	twos := builder.Build()
+	for i := 0; i < 1000; i += 4 {
+		builder.Delete(Int(i))
+	}
+	for i := 5; i < 1000; i += 10 {
+		builder.ReplaceOrInsert(Int(i))
+	}
+	minus4sPlusOdd5s := builder.Build()
+	builder.Set(twos)
+	for i := 0; i < 1000; i += 6 {
+		builder.Delete(Int(i))
+	}
+	for i := 7; i < 1000; i += 14 {
+		builder.ReplaceOrInsert(Int(i))
+	}
+	minus6sPlusOdd7s := builder.Build()
+
+	var want []Item
+
+	// Verify twos
+	for i := 0; i < 1000; i += 2 {
+		want = append(want, Int(i))
+	}
+	if got := twos.Len(); got != len(want) {
+		t.Fatalf("Expected %v, got %v", len(want), got)
+	}
+	got := all(twos)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+	}
+
+	// Verify minus4sPlusOdd5s
+	want = nil
+	for i := 2; i < 1000; i += 4 {
+		want = append(want, Int(i))
+	}
+	for i := 5; i < 1000; i += 10 {
+		want = append(want, Int(i))
+	}
+	want = sorted(want)
+	if got := minus4sPlusOdd5s.Len(); got != len(want) {
+		t.Fatalf("Expected %v, got %v", len(want), got)
+	}
+	got = all(minus4sPlusOdd5s)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+	}
+
+	// Verify minus6sPlusOdd7s
+	want = nil
+	for i := 2; i < 1000; i += 2 {
+		if i%6 != 0 {
+			want = append(want, Int(i))
+		}
+	}
+	for i := 7; i < 1000; i += 14 {
+		want = append(want, Int(i))
+	}
+	want = sorted(want)
+	if got := minus6sPlusOdd7s.Len(); got != len(want) {
+		t.Fatalf("Expected %v, got %v", len(want), got)
+	}
+	got = all(minus6sPlusOdd7s)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestInsertExistingImmutableBTree(t *testing.T) {
+	const initialSize = 10000
+	const batchSize = 100
+	// 0,2,4,6,...,19998
+	insertP := permf(initialSize, func(i int) int { return 2 * i })
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for _, item := range insertP {
+		builder.ReplaceOrInsert(item)
+	}
+	tr := builder.Build()
+	var trees [10]*ImmutableBTree
+	var batches [10][]Item
+	for i := range trees {
+		// 100 random numbers taken from 1,3,5,7,...,19999
+		batches[i] = permf(
+			initialSize,
+			func(i int) int { return 2*i + 1 })[:batchSize]
+		builder := NewBuilder(tr)
+		for _, item := range batches[i] {
+			builder.ReplaceOrInsert(item)
+		}
+		trees[i] = builder.Build()
+	}
+	// Test each of the trees
+	for i := range trees {
+		got := all(trees[i])
+		var want []Item
+		want = append(want, insertP...)
+		want = append(want, batches[i]...)
+		want = sorted(want)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+		}
+		if got, want := trees[i].Len(), initialSize+batchSize; got != want {
+			t.Fatalf("got size: %v\nwant: %v", got, want)
+		}
+	}
+	// Test tr
+	got := all(tr)
+	want := sorted(insertP)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+	}
+	if got, want := tr.Len(), initialSize; got != want {
+		t.Fatalf("got size: %v\nwant: %v", got, want)
+	}
+}
+
+func TestDeleteExistingImmutableBTree(t *testing.T) {
+	const initialSize = 10000
+	const batchSize = 100
+	// 0,1,2,3,...,9999
+	insertP := perm(initialSize)
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for _, item := range insertP {
+		builder.ReplaceOrInsert(item)
+	}
+	tr := builder.Build()
+	var trees [10]*ImmutableBTree
+	var batches [10][]Item
+	for i := range trees {
+		// 100 random numbers taken from 0,1,2,...,9999
+		batches[i] = perm(initialSize)[:batchSize]
+		builder := NewBuilder(tr)
+		for _, item := range batches[i] {
+			builder.Delete(item)
+		}
+		trees[i] = builder.Build()
+	}
+	// Test each of the trees
+	for i := range trees {
+		got := all(trees[i])
+		want := difference(
+			rang(initialSize), sorted(batches[i]))
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+		}
+		if got, want := trees[i].Len(), initialSize-batchSize; got != want {
+			t.Fatalf("got size: %v\nwant: %v", got, want)
+		}
+	}
+	// Test tr
+	got := all(tr)
+	want := sorted(insertP)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mismatch:\n got: %v\nwant: %v", got, want)
+	}
+	if got, want := tr.Len(), initialSize; got != want {
+		t.Fatalf("got size: %v\nwant: %v", got, want)
+	}
+}
+
+func ExampleImmutableBTree() {
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for i := Int(0); i < 10; i++ {
+		builder.ReplaceOrInsert(i)
+	}
+	zeroTo9 := builder.Build()
+	builder.DeleteMax()
+	builder.ReplaceOrInsert(Int(100))
+	builder.ReplaceOrInsert(Int(50))
+	no9But50And100 := builder.Build()
+	builder.Set(zeroTo9)
+	builder.DeleteMin()
+	builder.Delete(Int(7))
+	no0no7 := builder.Build()
+	fmt.Println("len:       ", zeroTo9.Len())
+	fmt.Println("get3:      ", zeroTo9.Get(Int(3)))
+	fmt.Println("get100:    ", zeroTo9.Get(Int(100)))
+	fmt.Println("min:       ", zeroTo9.Min())
+	fmt.Println("max:       ", zeroTo9.Max())
+	fmt.Println()
+	fmt.Println("len:       ", no9But50And100.Len())
+	fmt.Println("get9:      ", no9But50And100.Get(Int(9)))
+	fmt.Println("get50:     ", no9But50And100.Get(Int(50)))
+	fmt.Println("min:       ", no9But50And100.Min())
+	fmt.Println("max:       ", no9But50And100.Max())
+	fmt.Println()
+	fmt.Println("len:       ", no0no7.Len())
+	fmt.Println("get7:      ", no0no7.Get(Int(7)))
+	fmt.Println("get4:      ", no0no7.Get(Int(4)))
+	fmt.Println("min:       ", no0no7.Min())
+	fmt.Println("max:       ", no0no7.Max())
+
+	// Output:
+	// len:        10
+	// get3:       3
+	// get100:     <nil>
+	// min:        0
+	// max:        9
+	//
+	// len:        11
+	// get9:       <nil>
+	// get50:      50
+	// min:        0
+	// max:        100
+	//
+	// len:        8
+	// get7:       <nil>
+	// get4:       4
+	// min:        1
+	// max:        9
 }
 
 func ExampleBTree() {
@@ -184,6 +510,58 @@ func TestDeleteMax(t *testing.T) {
 	}
 	if want := rang(100); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ascendrange:\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestImmutableDeleteMin(t *testing.T) {
+	builder := NewBuilder(NewImmutable(3))
+	for _, v := range perm(100) {
+		builder.ReplaceOrInsert(v)
+	}
+	zeroTo99 := builder.Build()
+	var got []Item
+	for v := builder.DeleteMin(); v != nil; v = builder.DeleteMin() {
+		got = append(got, v)
+	}
+	empty := builder.Build()
+	if want := rang(100); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascendrange:\n got: %v\nwant: %v", got, want)
+	}
+	got = all(zeroTo99)
+	if want := rang(100); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascendrange2:\n got: %v\nwant: %v", got, want)
+	}
+	got = all(empty)
+	if want := rang(0); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascendrange3:\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestImmutableDeleteMax(t *testing.T) {
+	builder := NewBuilder(NewImmutable(3))
+	for _, v := range perm(100) {
+		builder.ReplaceOrInsert(v)
+	}
+	zeroTo99 := builder.Build()
+	var got []Item
+	for v := builder.DeleteMax(); v != nil; v = builder.DeleteMax() {
+		got = append(got, v)
+	}
+	empty := builder.Build()
+	// Reverse our list.
+	for i := 0; i < len(got)/2; i++ {
+		got[i], got[len(got)-i-1] = got[len(got)-i-1], got[i]
+	}
+	if want := rang(100); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascendrange:\n got: %v\nwant: %v", got, want)
+	}
+	got = all(zeroTo99)
+	if want := rang(100); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascendrange2:\n got: %v\nwant: %v", got, want)
+	}
+	got = all(empty)
+	if want := rang(0); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascendrange3:\n got: %v\nwant: %v", got, want)
 	}
 }
 
@@ -360,6 +738,64 @@ func BenchmarkInsert(b *testing.B) {
 	}
 }
 
+func BenchmarkImmutableInsert1(b *testing.B) {
+	b.StopTimer()
+	// 0,2,4,6,...,19998
+	insertP := permf(benchmarkTreeSize, func(i int) int { return 2 * i })
+	// Of form 2*n + 1 n is in [0, 9999)
+	itemToInsert := Int(2*rand.Intn(benchmarkTreeSize) + 1)
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for _, item := range insertP {
+		builder.ReplaceOrInsert(item)
+	}
+	tr := builder.Build()
+	expectedNewTrSize := benchmarkTreeSize + 1
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		builder := NewBuilder(tr)
+		builder.ReplaceOrInsert(itemToInsert)
+		i++
+		newTr := builder.Build()
+		if newTr.Len() != expectedNewTrSize {
+			panic(newTr.Len())
+		}
+	}
+}
+
+func BenchmarkImmutableInsert100(b *testing.B) {
+	const batchSize = 100
+	b.StopTimer()
+	// 0,2,4,6,...,19998
+	insertP := permf(benchmarkTreeSize, func(i int) int { return 2 * i })
+	// 100 random numbers taken from 1,3,5,7,...,19999
+	insertB := permf(
+		benchmarkTreeSize,
+		func(i int) int { return 2*i + 1 })[:batchSize]
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for _, item := range insertP {
+		builder.ReplaceOrInsert(item)
+	}
+	tr := builder.Build()
+	expectedNewTrSize := benchmarkTreeSize + batchSize
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		builder := NewBuilder(tr)
+		for _, item := range insertB {
+			builder.ReplaceOrInsert(item)
+			i++
+			if i >= b.N {
+				return
+			}
+		}
+		newTr := builder.Build()
+		if newTr.Len() != expectedNewTrSize {
+			panic(newTr.Len())
+		}
+	}
+}
+
 func BenchmarkDelete(b *testing.B) {
 	b.StopTimer()
 	insertP := perm(benchmarkTreeSize)
@@ -382,6 +818,61 @@ func BenchmarkDelete(b *testing.B) {
 		}
 		if tr.Len() > 0 {
 			panic(tr.Len())
+		}
+	}
+}
+
+func BenchmarkImmutableDelete1(b *testing.B) {
+	b.StopTimer()
+	// 0,1,2,3,...,9999
+	insertP := perm(benchmarkTreeSize)
+	itemToDelete := Int(rand.Intn(benchmarkTreeSize))
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for _, item := range insertP {
+		builder.ReplaceOrInsert(item)
+	}
+	tr := builder.Build()
+	expectedNewTrSize := benchmarkTreeSize - 1
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		builder := NewBuilder(tr)
+		builder.Delete(itemToDelete)
+		i++
+		newTr := builder.Build()
+		if newTr.Len() != expectedNewTrSize {
+			panic(newTr.Len())
+		}
+	}
+}
+
+func BenchmarkImmutableDelete100(b *testing.B) {
+	const batchSize = 100
+	b.StopTimer()
+	// 0,1,2,3,...,9999
+	insertP := perm(benchmarkTreeSize)
+	// 100 random numbers taken from 0,1,2,3,...,9999
+	deleteB := perm(benchmarkTreeSize)[:batchSize]
+	builder := NewBuilder(NewImmutable(*btreeDegree))
+	for _, item := range insertP {
+		builder.ReplaceOrInsert(item)
+	}
+	tr := builder.Build()
+	expectedNewTrSize := benchmarkTreeSize - batchSize
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		builder := NewBuilder(tr)
+		for _, item := range deleteB {
+			builder.Delete(item)
+			i++
+			if i >= b.N {
+				return
+			}
+		}
+		newTr := builder.Build()
+		if newTr.Len() != expectedNewTrSize {
+			panic(newTr.Len())
 		}
 	}
 }
