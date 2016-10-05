@@ -68,6 +68,11 @@ const (
 	DefaultFreeListSize = 32
 )
 
+var (
+	nilItems    = make(items, 16)
+	nilChildren = make(children, 16)
+)
+
 // FreeList represents a free list of btree nodes. By default each
 // BTree has its own FreeList, but multiple BTrees can share the same
 // FreeList.
@@ -158,11 +163,11 @@ func (s *items) pop() (out Item) {
 // truncate truncates this instance at index so that it contains only the
 // first index items. index must be less than or equal to length.
 func (s *items) truncate(index int) {
-	l := len(*s)
-	for i := index; i < l; i++ {
-		(*s)[i] = nil
+	var toClear items
+	*s, toClear = (*s)[:index], (*s)[index:]
+	for len(toClear) > 0 {
+		toClear = toClear[copy(toClear, nilItems):]
 	}
-	*s = (*s)[:index]
 }
 
 // find returns the index where the given item should be inserted into this
@@ -213,11 +218,11 @@ func (s *children) pop() (out *node) {
 // truncate truncates this instance at index so that it contains only the
 // first index children. index must be less than or equal to length.
 func (s *children) truncate(index int) {
-	l := len(*s)
-	for i := index; i < l; i++ {
-		(*s)[i] = nil
+	var toClear children
+	*s, toClear = (*s)[:index], (*s)[index:]
+	for len(toClear) > 0 {
+		toClear = toClear[copy(toClear, nilChildren):]
 	}
-	*s = (*s)[:index]
 }
 
 // node is an internal node in a tree.
