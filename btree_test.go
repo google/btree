@@ -107,7 +107,7 @@ func allrev(t *BTree) (out []Item) {
 var btreeDegree = flag.Int("degree", 32, "B-Tree degree")
 
 func TestImmutableBTree(t *testing.T) {
-	builder := NewBuilder(NewImmutable(4))
+	builder := CopyOf(NewImmutable(4))
 	const treeSize = 1024
 	const sizeIncr = 32
 	for i := 0; i < 10; i++ {
@@ -121,7 +121,7 @@ func TestImmutableBTree(t *testing.T) {
 		aPerm := perm(treeSize)
 		for i, item := range aPerm {
 			if i%sizeIncr == 0 {
-				trees[i/sizeIncr] = builder.Build()
+				trees[i/sizeIncr] = builder.Copy()
 			}
 			if x := builder.ReplaceOrInsert(item); x != nil {
 				t.Fatal("insert found item", item)
@@ -132,7 +132,7 @@ func TestImmutableBTree(t *testing.T) {
 				t.Fatal("insert didn't find item", item)
 			}
 		}
-		fullTree := builder.Build()
+		fullTree := builder.Copy()
 		if min, want := fullTree.Min(), Item(Int(0)); min != want {
 			t.Fatalf("min: want %+v, got %+v", want, min)
 		}
@@ -162,7 +162,7 @@ func TestImmutableBTree(t *testing.T) {
 		aPerm = perm(treeSize)
 		for i, item := range aPerm {
 			if i%sizeIncr == 0 {
-				trees[i/sizeIncr] = builder.Build()
+				trees[i/sizeIncr] = builder.Copy()
 			}
 			if x := builder.Delete(item); x == nil {
 				t.Fatalf("didn't find %v", item)
@@ -233,18 +233,18 @@ func TestBTree(t *testing.T) {
 }
 
 func TestImmutableBTreeBuilderReuse(t *testing.T) {
-	builder := NewBuilder(NewImmutable(3))
+	builder := CopyOf(NewImmutable(3))
 	for i := 0; i < 1000; i += 2 {
 		builder.ReplaceOrInsert(Int(i))
 	}
-	twos := builder.Build()
+	twos := builder.Copy()
 	for i := 0; i < 1000; i += 4 {
 		builder.Delete(Int(i))
 	}
 	for i := 5; i < 1000; i += 10 {
 		builder.ReplaceOrInsert(Int(i))
 	}
-	minus4sPlusOdd5s := builder.Build()
+	minus4sPlusOdd5s := builder.Copy()
 	builder.Set(twos)
 	for i := 0; i < 1000; i += 6 {
 		builder.Delete(Int(i))
@@ -252,7 +252,7 @@ func TestImmutableBTreeBuilderReuse(t *testing.T) {
 	for i := 7; i < 1000; i += 14 {
 		builder.ReplaceOrInsert(Int(i))
 	}
-	minus6sPlusOdd7s := builder.Build()
+	minus6sPlusOdd7s := builder.Copy()
 
 	var want []Item
 
@@ -310,11 +310,11 @@ func TestInsertExistingImmutableBTree(t *testing.T) {
 	const batchSize = 100
 	// 0,2,4,6,...,19998
 	insertP := permf(initialSize, func(i int) int { return 2 * i })
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for _, item := range insertP {
 		builder.ReplaceOrInsert(item)
 	}
-	tr := builder.Build()
+	tr := builder.Copy()
 	var trees [10]*ImmutableBTree
 	var batches [10][]Item
 	for i := range trees {
@@ -322,11 +322,11 @@ func TestInsertExistingImmutableBTree(t *testing.T) {
 		batches[i] = permf(
 			initialSize,
 			func(i int) int { return 2*i + 1 })[:batchSize]
-		builder := NewBuilder(tr)
+		builder := CopyOf(tr)
 		for _, item := range batches[i] {
 			builder.ReplaceOrInsert(item)
 		}
-		trees[i] = builder.Build()
+		trees[i] = builder.Copy()
 	}
 	// Test each of the trees
 	for i := range trees {
@@ -358,21 +358,21 @@ func TestDeleteExistingImmutableBTree(t *testing.T) {
 	const batchSize = 100
 	// 0,1,2,3,...,9999
 	insertP := perm(initialSize)
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for _, item := range insertP {
 		builder.ReplaceOrInsert(item)
 	}
-	tr := builder.Build()
+	tr := builder.Copy()
 	var trees [10]*ImmutableBTree
 	var batches [10][]Item
 	for i := range trees {
 		// 100 random numbers taken from 0,1,2,...,9999
 		batches[i] = perm(initialSize)[:batchSize]
-		builder := NewBuilder(tr)
+		builder := CopyOf(tr)
 		for _, item := range batches[i] {
 			builder.Delete(item)
 		}
-		trees[i] = builder.Build()
+		trees[i] = builder.Copy()
 	}
 	// Test each of the trees
 	for i := range trees {
@@ -398,19 +398,19 @@ func TestDeleteExistingImmutableBTree(t *testing.T) {
 }
 
 func ExampleImmutableBTree() {
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for i := Int(0); i < 10; i++ {
 		builder.ReplaceOrInsert(i)
 	}
-	zeroTo9 := builder.Build()
+	zeroTo9 := builder.Copy()
 	builder.DeleteMax()
 	builder.ReplaceOrInsert(Int(100))
 	builder.ReplaceOrInsert(Int(50))
-	no9But50And100 := builder.Build()
+	no9But50And100 := builder.Copy()
 	builder.Set(zeroTo9)
 	builder.DeleteMin()
 	builder.Delete(Int(7))
-	no0no7 := builder.Build()
+	no0no7 := builder.Copy()
 	fmt.Println("len:       ", zeroTo9.Len())
 	fmt.Println("get3:      ", zeroTo9.Get(Int(3)))
 	fmt.Println("get100:    ", zeroTo9.Get(Int(100)))
@@ -514,16 +514,16 @@ func TestDeleteMax(t *testing.T) {
 }
 
 func TestImmutableDeleteMin(t *testing.T) {
-	builder := NewBuilder(NewImmutable(3))
+	builder := CopyOf(NewImmutable(3))
 	for _, v := range perm(100) {
 		builder.ReplaceOrInsert(v)
 	}
-	zeroTo99 := builder.Build()
+	zeroTo99 := builder.Copy()
 	var got []Item
 	for v := builder.DeleteMin(); v != nil; v = builder.DeleteMin() {
 		got = append(got, v)
 	}
-	empty := builder.Build()
+	empty := builder.Copy()
 	if want := rang(100); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ascendrange:\n got: %v\nwant: %v", got, want)
 	}
@@ -538,16 +538,16 @@ func TestImmutableDeleteMin(t *testing.T) {
 }
 
 func TestImmutableDeleteMax(t *testing.T) {
-	builder := NewBuilder(NewImmutable(3))
+	builder := CopyOf(NewImmutable(3))
 	for _, v := range perm(100) {
 		builder.ReplaceOrInsert(v)
 	}
-	zeroTo99 := builder.Build()
+	zeroTo99 := builder.Copy()
 	var got []Item
 	for v := builder.DeleteMax(); v != nil; v = builder.DeleteMax() {
 		got = append(got, v)
 	}
-	empty := builder.Build()
+	empty := builder.Copy()
 	// Reverse our list.
 	for i := 0; i < len(got)/2; i++ {
 		got[i], got[len(got)-i-1] = got[len(got)-i-1], got[i]
@@ -744,19 +744,19 @@ func BenchmarkImmutableInsert1(b *testing.B) {
 	insertP := permf(benchmarkTreeSize, func(i int) int { return 2 * i })
 	// Of form 2*n + 1 n is in [0, 9999)
 	itemToInsert := Int(2*rand.Intn(benchmarkTreeSize) + 1)
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for _, item := range insertP {
 		builder.ReplaceOrInsert(item)
 	}
-	tr := builder.Build()
+	tr := builder.Copy()
 	expectedNewTrSize := benchmarkTreeSize + 1
 	b.StartTimer()
 	i := 0
 	for i < b.N {
-		builder := NewBuilder(tr)
+		builder := CopyOf(tr)
 		builder.ReplaceOrInsert(itemToInsert)
 		i++
-		newTr := builder.Build()
+		newTr := builder.Copy()
 		if newTr.Len() != expectedNewTrSize {
 			panic(newTr.Len())
 		}
@@ -772,16 +772,16 @@ func BenchmarkImmutableInsert100(b *testing.B) {
 	insertB := permf(
 		benchmarkTreeSize,
 		func(i int) int { return 2*i + 1 })[:batchSize]
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for _, item := range insertP {
 		builder.ReplaceOrInsert(item)
 	}
-	tr := builder.Build()
+	tr := builder.Copy()
 	expectedNewTrSize := benchmarkTreeSize + batchSize
 	b.StartTimer()
 	i := 0
 	for i < b.N {
-		builder := NewBuilder(tr)
+		builder := CopyOf(tr)
 		for _, item := range insertB {
 			builder.ReplaceOrInsert(item)
 			i++
@@ -789,7 +789,7 @@ func BenchmarkImmutableInsert100(b *testing.B) {
 				return
 			}
 		}
-		newTr := builder.Build()
+		newTr := builder.Copy()
 		if newTr.Len() != expectedNewTrSize {
 			panic(newTr.Len())
 		}
@@ -827,19 +827,19 @@ func BenchmarkImmutableDelete1(b *testing.B) {
 	// 0,1,2,3,...,9999
 	insertP := perm(benchmarkTreeSize)
 	itemToDelete := Int(rand.Intn(benchmarkTreeSize))
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for _, item := range insertP {
 		builder.ReplaceOrInsert(item)
 	}
-	tr := builder.Build()
+	tr := builder.Copy()
 	expectedNewTrSize := benchmarkTreeSize - 1
 	b.StartTimer()
 	i := 0
 	for i < b.N {
-		builder := NewBuilder(tr)
+		builder := CopyOf(tr)
 		builder.Delete(itemToDelete)
 		i++
-		newTr := builder.Build()
+		newTr := builder.Copy()
 		if newTr.Len() != expectedNewTrSize {
 			panic(newTr.Len())
 		}
@@ -853,16 +853,16 @@ func BenchmarkImmutableDelete100(b *testing.B) {
 	insertP := perm(benchmarkTreeSize)
 	// 100 random numbers taken from 0,1,2,3,...,9999
 	deleteB := perm(benchmarkTreeSize)[:batchSize]
-	builder := NewBuilder(NewImmutable(*btreeDegree))
+	builder := CopyOf(NewImmutable(*btreeDegree))
 	for _, item := range insertP {
 		builder.ReplaceOrInsert(item)
 	}
-	tr := builder.Build()
+	tr := builder.Copy()
 	expectedNewTrSize := benchmarkTreeSize - batchSize
 	b.StartTimer()
 	i := 0
 	for i < b.N {
-		builder := NewBuilder(tr)
+		builder := CopyOf(tr)
 		for _, item := range deleteB {
 			builder.Delete(item)
 			i++
@@ -870,7 +870,7 @@ func BenchmarkImmutableDelete100(b *testing.B) {
 				return
 			}
 		}
-		newTr := builder.Build()
+		newTr := builder.Copy()
 		if newTr.Len() != expectedNewTrSize {
 			panic(newTr.Len())
 		}

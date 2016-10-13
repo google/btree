@@ -114,17 +114,31 @@ type ItemIterator func(i Item) bool
 // New(2), for example, will create a 2-3-4 tree (each node contains 1-3 items
 // and 2-4 children).
 func New(degree int) *BTree {
-	return NewWithFreeList(degree, NewFreeList(DefaultFreeListSize))
+	return _new(NewImmutable(degree), NewFreeList(DefaultFreeListSize))
 }
 
 // NewWithFreeList creates a new B-Tree that uses the given node free list.
 func NewWithFreeList(degree int, f *FreeList) *BTree {
-	return &BTree{
+	return _new(NewImmutable(degree), f)
+}
+
+// CopyOf returns a writable copy of tree. CopyOf runs in constant time as
+// it causes this instance to share the same nodes as tree. After calling
+// CopyOf, mutations on this instance make copies of nodes that changed. As
+// this instance acquires its own copy of more and more nodes, mutations
+// copy fewer and fewer nodes.
+func CopyOf(tree *ImmutableBTree) *BTree {
+	return _new(tree, NewFreeList(DefaultFreeListSize))
+}
+
+func _new(tree *ImmutableBTree, f *FreeList) *BTree {
+	result := &BTree{
 		context: btreeContext{
 			freelist: f,
 		},
-		tree: NewImmutable(degree),
 	}
+	result.Set(tree)
+	return result
 }
 
 // items stores items in a node.
@@ -781,176 +795,23 @@ func (c *btreeContext) writableNode(n *node) *node {
 	return result
 }
 
-// Builder builds ImmutableBTree instances.
-// A Builder instance has all the same methods as a BTree instance plus a
-// Set method and a Build method. Set changes the builder instance to have the
-// same Items and degree as a given ImmutableBTree instance; Build returns
-// an ImmutableBTree instance that has the same Items and degree as the
-// Builder instance.
-//
-// Calling Set on a Builder causes the Builder to share the same nodes as the
-// passed ImmutableBTree instance; calling Build on a Builder causes the
-// Builder to share the same nodes as the returned ImmutableBTree instance.
-// This sharing of nodes allows both Set and Build to run in constant time.
-//
-// Subsequent changes to a new Builder instance or to a Builder instance
-// after a call to Set or Build copy only the nodes that change.
-// The number of nodes that change with each mutating call to the Builder
-// instance is O(log N) where N is the number of items in the tree.
-// As the Builder instance acquires its own copy of more and more nodes,
-// each subsequent change copies fewer and fewer nodes.
-//
-// Builder instances are unsafe to use with multiple goroutines.
-type Builder struct {
-	copied  bool
-	tree    *ImmutableBTree
-	context btreeContext
-}
-
-// NewBuilder returns a new Builder instance with same items and degree as
-// tree.
-func NewBuilder(tree *ImmutableBTree) *Builder {
-	result := &Builder{
-		context: btreeContext{
-			freelist: NewFreeList(DefaultFreeListSize),
-		},
+// deepCopy does a deep copy of n. If n is sahred (read-only) deepCopy
+// returns n as is. deepCopy must never mutate state in this instance.
+func (c *btreeContext) deepCopy(n *node) *node {
+	// If n is shared/read-only return it as is.
+	if c.writables != nil && !c.writables[n] {
+		return n
 	}
-	return result.Set(tree)
-}
-
-// ReplaceOrInsert adds the given item to the tree.  If an item in the tree
-// already equals the given one, it is removed from the tree and returned.
-// Otherwise, nil is returned.
-//
-// nil cannot be added to the tree (will panic).
-func (b *Builder) ReplaceOrInsert(item Item) Item {
-	bt := b.writableBTree()
-	return bt.replaceOrInsert(item, &b.context)
-}
-
-// Delete removes an item equal to the passed in item from the tree, returning
-// it.  If no such item exists, returns nil.
-func (b *Builder) Delete(item Item) Item {
-	bt := b.writableBTree()
-	return bt.deleteItem(item, removeItem, &b.context)
-}
-
-// DeleteMin removes the smallest item in the tree and returns it.
-// If no such item exists, returns nil.
-func (b *Builder) DeleteMin() Item {
-	bt := b.writableBTree()
-	return bt.deleteItem(nil, removeMin, &b.context)
-}
-
-// DeleteMax removes the largest item in the tree and returns it.
-// If no such item exists, returns nil.
-func (b *Builder) DeleteMax() Item {
-	bt := b.writableBTree()
-	return bt.deleteItem(nil, removeMax, &b.context)
-}
-
-// AscendRange calls the iterator for every value in the tree within the range
-// [greaterOrEqual, lessThan), until iterator returns false.
-func (b *Builder) AscendRange(greaterOrEqual, lessThan Item, iterator ItemIterator) {
-	b.tree.AscendRange(greaterOrEqual, lessThan, iterator)
-}
-
-// AscendLessThan calls the iterator for every value in the tree within the range
-// [first, pivot), until iterator returns false.
-func (b *Builder) AscendLessThan(pivot Item, iterator ItemIterator) {
-	b.tree.AscendLessThan(pivot, iterator)
-}
-
-// AscendGreaterOrEqual calls the iterator for every value in the tree within
-// the range [pivot, last], until iterator returns false.
-func (b *Builder) AscendGreaterOrEqual(pivot Item, iterator ItemIterator) {
-	b.tree.AscendGreaterOrEqual(pivot, iterator)
-}
-
-// Ascend calls the iterator for every value in the tree within the range
-// [first, last], until iterator returns false.
-func (b *Builder) Ascend(iterator ItemIterator) {
-	b.tree.Ascend(iterator)
-}
-
-// DescendRange calls the iterator for every value in the tree within the range
-// [lessOrEqual, greaterThan), until iterator returns false.
-func (b *Builder) DescendRange(lessOrEqual, greaterThan Item, iterator ItemIterator) {
-	b.tree.DescendRange(lessOrEqual, greaterThan, iterator)
-}
-
-// DescendLessOrEqual calls the iterator for every value in the tree within the range
-// [pivot, first], until iterator returns false.
-func (b *Builder) DescendLessOrEqual(pivot Item, iterator ItemIterator) {
-	b.tree.DescendLessOrEqual(pivot, iterator)
-}
-
-// DescendGreaterThan calls the iterator for every value in the tree within
-// the range (pivot, last], until iterator returns false.
-func (b *Builder) DescendGreaterThan(pivot Item, iterator ItemIterator) {
-	b.tree.DescendGreaterThan(pivot, iterator)
-}
-
-// Descend calls the iterator for every value in the tree within the range
-// [last, first], until iterator returns false.
-func (b *Builder) Descend(iterator ItemIterator) {
-	b.tree.Descend(iterator)
-}
-
-// Get looks for the key item in the tree, returning it.  It returns nil if
-// unable to find that item.
-func (b *Builder) Get(key Item) Item {
-	return b.tree.Get(key)
-}
-
-// Min returns the smallest item in the tree, or nil if the tree is empty.
-func (b *Builder) Min() Item {
-	return min(b.tree.root)
-}
-
-// Max returns the largest item in the tree, or nil if the tree is empty.
-func (b *Builder) Max() Item {
-	return max(b.tree.root)
-}
-
-// Has returns true if the given key is in the tree.
-func (b *Builder) Has(key Item) bool {
-	return b.tree.Get(key) != nil
-}
-
-// Len returns the number of items currently in the tree.
-func (b *Builder) Len() int {
-	return b.tree.length
-}
-
-// Set sets this Builder to tree and returns a reference to itself.
-func (b *Builder) Set(tree *ImmutableBTree) *Builder {
-	b.tree = tree
-	b.copied = false
-	if b.tree.root == nil {
-		// tree is empty so no shared nodes with this instance.
-		b.context.unShared()
-	} else {
-		// This instance shares all its nodes with tree.
-		b.context.shared()
+	// Can't use c.newNode() as it would mutate this instance
+	result := &node{}
+	result.items = append(result.items, n.items...)
+	if len(n.children) > 0 {
+		result.children = append(result.children, n.children...)
+		for i := range result.children {
+			result.children[i] = c.deepCopy(result.children[i])
+		}
 	}
-	return b
-}
-
-// Build returns a tree with same items and degree as this builder.
-func (b *Builder) Build() *ImmutableBTree {
-	result := b.tree
-	b.Set(result)
 	return result
-}
-
-func (b *Builder) writableBTree() *ImmutableBTree {
-	if !b.copied {
-		b.copied = true
-		acopy := *b.tree
-		b.tree = &acopy
-	}
-	return b.tree
 }
 
 // BTree is an implementation of a B-Tree.
@@ -961,7 +822,7 @@ func (b *Builder) writableBTree() *ImmutableBTree {
 // Write operations are not safe for concurrent mutation by multiple
 // goroutines, but Read operations are.
 type BTree struct {
-	tree    *ImmutableBTree
+	tree    ImmutableBTree
 	context btreeContext
 }
 
@@ -1064,6 +925,32 @@ func (t *BTree) Has(key Item) bool {
 // Len returns the number of items currently in the tree.
 func (t *BTree) Len() int {
 	return t.tree.length
+}
+
+// Set sets this instance to tree and returns a reference to itself.
+// See documentation on CopyOf.
+func (t *BTree) Set(tree *ImmutableBTree) *BTree {
+	t.tree = *tree
+	if t.tree.root == nil {
+		// tree is empty so no shared nodes with this instance.
+		t.context.unShared()
+	} else {
+		// This instance shares all its nodes with tree.
+		t.context.shared()
+	}
+	return t
+}
+
+// Copy returns a tree with same items and degree as this instance. Normally
+// Copy runs in O(N) time, but if relatively few changes have been made to this
+// instance since it was created with CopyOf or since the last call to Set,
+// Copy will run in sub-linear time.
+func (t *BTree) Copy() *ImmutableBTree {
+	aCopy := t.tree
+	if aCopy.root != nil {
+		aCopy.root = t.context.deepCopy(aCopy.root)
+	}
+	return &aCopy
 }
 
 // Int implements the Item interface for integers.
