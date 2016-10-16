@@ -131,7 +131,9 @@ func ExampleBTree() {
 	fmt.Println("len:       ", tr.Len())
 	fmt.Println("get3:      ", tr.Get(Int(3)))
 	fmt.Println("get100:    ", tr.Get(Int(100)))
+	fmt.Println("getat9:    ", tr.GetAt(9))
 	fmt.Println("del4:      ", tr.Delete(Int(4)))
+	fmt.Println("getat9:    ", tr.GetAt(9))
 	fmt.Println("del100:    ", tr.Delete(Int(100)))
 	fmt.Println("replace5:  ", tr.ReplaceOrInsert(Int(5)))
 	fmt.Println("replace100:", tr.ReplaceOrInsert(Int(100)))
@@ -144,7 +146,9 @@ func ExampleBTree() {
 	// len:        10
 	// get3:       3
 	// get100:     <nil>
+	// getat9:     9
 	// del4:       4
+	// getat9:     <nil>
 	// del100:     <nil>
 	// replace5:   5
 	// replace100: <nil>
@@ -341,6 +345,50 @@ func TestDescendGreaterThan(t *testing.T) {
 	}
 }
 
+func TestGetAt(t *testing.T) {
+	tr := New(3)
+	for _, v := range perm(100) {
+		tr.ReplaceOrInsert(v)
+	}
+	var got []Item
+	for v := range rang(100) {
+		got = append(got, tr.GetAt(v))
+	}
+	if want := rang(100); !reflect.DeepEqual(got, want) {
+		t.Fatalf("getat:\n got: %v\nwant: %v", got, want)
+	}
+	for _, v := range perm(100) {
+		tr.Delete(v)
+	}
+	if tr.Len() != 0 {
+		t.Fatalf("getat:\n tr.Len() not zero\n")
+	}
+}
+
+func TestGetAtAfterDelete(t *testing.T) {
+	tr := New(3)
+	for _, v := range perm(100) {
+		tr.ReplaceOrInsert(v)
+	}
+	for v := range rang(10) {
+		tr.Delete(Int(40 + v))
+	}
+	var got []Item
+	for v := range rang(100) {
+		got = append(got, tr.GetAt(v))
+	}
+	want := rang(40)
+	for v := range rang(50) {
+		want = append(want, Int(50+v))
+	}
+	for _ = range rang(10) {
+		want = append(want, nil)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("getatafterdelete:\n got: %v\nwant: %v", got, want)
+	}
+}
+
 const benchmarkTreeSize = 10000
 
 func BenchmarkInsert(b *testing.B) {
@@ -401,6 +449,29 @@ func BenchmarkGet(b *testing.B) {
 		b.StartTimer()
 		for _, item := range removeP {
 			tr.Get(item)
+			i++
+			if i >= b.N {
+				return
+			}
+		}
+	}
+}
+
+func BenchmarkGetAt(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	removeP := perm(benchmarkTreeSize)
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		b.StopTimer()
+		tr := New(*btreeDegree)
+		for _, v := range insertP {
+			tr.ReplaceOrInsert(v)
+		}
+		b.StartTimer()
+		for _, item := range removeP {
+			tr.GetAt(int(item.(Int)))
 			i++
 			if i >= b.N {
 				return

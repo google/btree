@@ -231,6 +231,7 @@ func (s *children) truncate(index int) {
 //   * len(children) == 0, len(items) unconstrained
 //   * len(children) == len(items) + 1
 type node struct {
+	length   int
 	items    items
 	children children
 	t        *BTree
@@ -248,6 +249,12 @@ func (n *node) split(i int) (Item, *node) {
 		next.children = append(next.children, n.children[i+1:]...)
 		n.children.truncate(i + 1)
 	}
+	nextLength := len(next.items)
+	for j := range next.children {
+		nextLength += next.children[j].length
+	}
+	next.length = nextLength
+	n.length -= (1 + nextLength)
 	return item, next
 }
 
@@ -276,6 +283,7 @@ func (n *node) insert(item Item, maxItems int) Item {
 	}
 	if len(n.children) == 0 {
 		n.items.insertAt(i, item)
+		n.length++
 		return nil
 	}
 	if n.maybeSplitChild(i, maxItems) {
@@ -291,7 +299,11 @@ func (n *node) insert(item Item, maxItems int) Item {
 			return out
 		}
 	}
-	return n.children[i].insert(item, maxItems)
+	out := n.children[i].insert(item, maxItems)
+	if out == nil {
+		n.length++
+	}
+	return out
 }
 
 // get finds the given key in the subtree and returns it.
@@ -346,14 +358,17 @@ const (
 func (n *node) remove(item Item, minItems int, typ toRemove) Item {
 	var i int
 	var found bool
+
 	switch typ {
 	case removeMax:
 		if len(n.children) == 0 {
+			n.length--
 			return n.items.pop()
 		}
 		i = len(n.items)
 	case removeMin:
 		if len(n.children) == 0 {
+			n.length--
 			return n.items.removeAt(0)
 		}
 		i = 0
@@ -361,6 +376,7 @@ func (n *node) remove(item Item, minItems int, typ toRemove) Item {
 		i, found = n.items.find(item)
 		if len(n.children) == 0 {
 			if found {
+				n.length--
 				return n.items.removeAt(i)
 			}
 			return nil
@@ -384,11 +400,16 @@ func (n *node) remove(item Item, minItems int, typ toRemove) Item {
 		// predecessor of item i (the rightmost leaf of our immediate left child)
 		// and set it into where we pulled the item from.
 		n.items[i] = child.remove(nil, minItems, removeMax)
+		n.length--
 		return out
 	}
 	// Final recursive call.  Once we're here, we know that the item isn't in this
 	// node and that the child is big enough to remove from.
-	return child.remove(item, minItems, typ)
+	out := child.remove(item, minItems, typ)
+	if out != nil {
+		n.length--
+	}
+	return out
 }
 
 // growChildAndRemove grows child 'i' to make sure it's possible to remove an
@@ -418,8 +439,12 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 		stolenItem := stealFrom.items.pop()
 		child.items.insertAt(0, n.items[i-1])
 		n.items[i-1] = stolenItem
+		stealFrom.length--
+		child.length++
 		if len(stealFrom.children) > 0 {
 			child.children.insertAt(0, stealFrom.children.pop())
+			stealFrom.length -= child.children[0].length
+			child.length += child.children[0].length
 		}
 	} else if i < len(n.items) && len(n.children[i+1].items) > minItems {
 		// steal from right child
@@ -427,8 +452,13 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 		stolenItem := stealFrom.items.removeAt(0)
 		child.items = append(child.items, n.items[i])
 		n.items[i] = stolenItem
+		stealFrom.length--
+		child.length++
 		if len(stealFrom.children) > 0 {
-			child.children = append(child.children, stealFrom.children.removeAt(0))
+			movedChild := stealFrom.children.removeAt(0)
+			child.children = append(child.children, movedChild)
+			stealFrom.length -= movedChild.length
+			child.length += movedChild.length
 		}
 	} else {
 		if i >= len(n.items) {
@@ -441,6 +471,7 @@ func (n *node) growChildAndRemove(i int, item Item, minItems int, typ toRemove) 
 		child.items = append(child.items, mergeItem)
 		child.items = append(child.items, mergeChild.items...)
 		child.children = append(child.children, mergeChild.children...)
+		child.length += 1 + mergeChild.length
 		n.t.freeNode(mergeChild)
 	}
 	return n.remove(item, minItems, typ)
@@ -519,6 +550,34 @@ func (n *node) iterate(dir direction, start, stop Item, includeStart bool, hit b
 	return hit, true
 }
 
+// Returns the ith Item in the tree rooted at n.
+func (n *node) getAt(i int) Item {
+	if len(n.children) == 0 {
+		if i >= len(n.items) {
+			return nil
+		}
+		return n.items[i]
+	}
+
+	offset := 0
+	for j := range n.items {
+		if i < offset+n.children[j].length {
+			return n.children[j].getAt(i - offset)
+		}
+		offset += n.children[j].length
+		if i == offset {
+			return n.items[j]
+		}
+
+		offset++
+	}
+
+	if i < offset+n.children[len(n.children)-1].length {
+		return n.children[len(n.children)-1].getAt(i - offset)
+	}
+	return nil
+}
+
 // Used for testing/debugging purposes.
 func (n *node) print(w io.Writer, level int) {
 	fmt.Fprintf(w, "%sNODE:%v\n", strings.Repeat("  ", level), n.items)
@@ -536,7 +595,6 @@ func (n *node) print(w io.Writer, level int) {
 // goroutines, but Read operations are.
 type BTree struct {
 	degree   int
-	length   int
 	root     *node
 	freelist *FreeList
 }
@@ -578,7 +636,7 @@ func (t *BTree) ReplaceOrInsert(item Item) Item {
 	if t.root == nil {
 		t.root = t.newNode()
 		t.root.items = append(t.root.items, item)
-		t.length++
+		t.root.length++
 		return nil
 	} else if len(t.root.items) >= t.maxItems() {
 		item2, second := t.root.split(t.maxItems() / 2)
@@ -586,11 +644,9 @@ func (t *BTree) ReplaceOrInsert(item Item) Item {
 		t.root = t.newNode()
 		t.root.items = append(t.root.items, item2)
 		t.root.children = append(t.root.children, oldroot, second)
+		t.root.length = oldroot.length + second.length + 1
 	}
 	out := t.root.insert(item, t.maxItems())
-	if out == nil {
-		t.length++
-	}
 	return out
 }
 
@@ -621,9 +677,6 @@ func (t *BTree) deleteItem(item Item, typ toRemove) Item {
 		oldroot := t.root
 		t.root = t.root.children[0]
 		t.freeNode(oldroot)
-	}
-	if out != nil {
-		t.length--
 	}
 	return out
 }
@@ -726,7 +779,21 @@ func (t *BTree) Has(key Item) bool {
 
 // Len returns the number of items currently in the tree.
 func (t *BTree) Len() int {
-	return t.length
+	if t.root == nil {
+		return 0
+	}
+	return t.root.length
+}
+
+// GetAt returns the ith item, panics if i < 0 and returns nil if i > t.Len().
+func (t *BTree) GetAt(i int) Item {
+	if i < 0 {
+		panic("invalid negative index")
+	}
+	if t.root == nil {
+		return nil
+	}
+	return t.root.getAt(i)
 }
 
 // Int implements the Item interface for integers.
