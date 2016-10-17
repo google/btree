@@ -721,6 +721,24 @@ func TestDescendGreaterThan(t *testing.T) {
 
 const benchmarkTreeSize = 10000
 
+func BenchmarkCopy(b *testing.B) {
+	b.StopTimer()
+	insert := perm(benchmarkTreeSize)
+	builder := New(*btreeDegree)
+	for _, item := range insert {
+		builder.ReplaceOrInsert(item)
+	}
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		tr := builder.Copy()
+		i++
+		if tr.Len() != benchmarkTreeSize {
+			panic(tr.Len())
+		}
+	}
+}
+
 func BenchmarkInsert(b *testing.B) {
 	b.StopTimer()
 	insertP := perm(benchmarkTreeSize)
