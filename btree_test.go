@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -360,6 +361,50 @@ func BenchmarkInsert(b *testing.B) {
 	}
 }
 
+func BenchmarkDeleteInsert(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, item := range insertP {
+		tr.ReplaceOrInsert(item)
+	}
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		tr.Delete(insertP[i%benchmarkTreeSize])
+		tr.ReplaceOrInsert(insertP[i%benchmarkTreeSize])
+	}
+}
+
+func BenchmarkDeleteInsertCloneOnce(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, item := range insertP {
+		tr.ReplaceOrInsert(item)
+	}
+	tr = tr.Clone()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		tr.Delete(insertP[i%benchmarkTreeSize])
+		tr.ReplaceOrInsert(insertP[i%benchmarkTreeSize])
+	}
+}
+
+func BenchmarkDeleteInsertCloneEachTime(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	tr := New(*btreeDegree)
+	for _, item := range insertP {
+		tr.ReplaceOrInsert(item)
+	}
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		tr = tr.Clone()
+		tr.Delete(insertP[i%benchmarkTreeSize])
+		tr.ReplaceOrInsert(insertP[i%benchmarkTreeSize])
+	}
+}
+
 func BenchmarkDelete(b *testing.B) {
 	b.StopTimer()
 	insertP := perm(benchmarkTreeSize)
@@ -400,6 +445,30 @@ func BenchmarkGet(b *testing.B) {
 		}
 		b.StartTimer()
 		for _, item := range removeP {
+			tr.Get(item)
+			i++
+			if i >= b.N {
+				return
+			}
+		}
+	}
+}
+
+func BenchmarkGetCloneEachTime(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	removeP := perm(benchmarkTreeSize)
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		b.StopTimer()
+		tr := New(*btreeDegree)
+		for _, v := range insertP {
+			tr.ReplaceOrInsert(v)
+		}
+		b.StartTimer()
+		for _, item := range removeP {
+			tr = tr.Clone()
 			tr.Get(item)
 			i++
 			if i >= b.N {
@@ -558,6 +627,63 @@ func BenchmarkDescendLessOrEqual(b *testing.B) {
 		}
 		if k != 99 {
 			b.Fatalf("expected: %v, got %v", 99, k)
+		}
+	}
+}
+
+const cloneTestSize = 10000
+
+func cloneTest(t *testing.T, b *BTree, start int, p []Item, wg *sync.WaitGroup, trees *[]*BTree) {
+	t.Logf("Starting new clone at %v", start)
+	*trees = append(*trees, b)
+	for i := start; i < cloneTestSize; i++ {
+		b.ReplaceOrInsert(p[i])
+		if i%(cloneTestSize/5) == 0 {
+			wg.Add(1)
+			go cloneTest(t, b.Clone(), i+1, p, wg, trees)
+		}
+	}
+	wg.Done()
+}
+
+func TestCloneConcurrentOperations(t *testing.T) {
+	b := New(*btreeDegree)
+	trees := []*BTree{}
+	p := perm(cloneTestSize)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go cloneTest(t, b, 0, p, &wg, &trees)
+	wg.Wait()
+	want := rang(cloneTestSize)
+	t.Logf("Starting equality checks on %d trees", len(trees))
+	for i, tree := range trees {
+		if !reflect.DeepEqual(want, all(tree)) {
+			t.Errorf("tree %v mismatch", i)
+		}
+	}
+	t.Log("Removing half from first half")
+	toRemove := rang(cloneTestSize)[cloneTestSize/2:]
+	for i := 0; i < len(trees)/2; i++ {
+		tree := trees[i]
+		wg.Add(1)
+		go func() {
+			for _, item := range toRemove {
+				tree.Delete(item)
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	t.Log("Checking all values again")
+	for i, tree := range trees {
+		var wantpart []Item
+		if i < len(trees)/2 {
+			wantpart = want[:cloneTestSize/2]
+		} else {
+			wantpart = want
+		}
+		if got := all(tree); !reflect.DeepEqual(wantpart, got) {
+			t.Errorf("tree %v mismatch, want %v got %v", i, len(want), len(got))
 		}
 	}
 }
