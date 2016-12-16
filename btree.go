@@ -594,8 +594,9 @@ type copyOnWriteContext struct {
 	freelist *FreeList
 }
 
-// Clone clones the btree, lazily. b2 can be used concurrently with
-// with the original tree, including concurrent writes to b and b2.
+// Clone clones the btree, lazily.  Clone should not be called concurrently,
+// but the original tree (b) and the new tree (b2) can be used concurrently
+// once the Clone call completes.
 //
 // The internal tree structure of b is marked read-only and shared between b and
 // b2.  Writes to both b and b2 use copy-on-write logic, creating new nodes
