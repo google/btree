@@ -595,25 +595,25 @@ type copyOnWriteContext struct {
 }
 
 // Clone clones the btree, lazily.  Clone should not be called concurrently,
-// but the original tree (b) and the new tree (b2) can be used concurrently
+// but the original tree (t) and the new tree (t2) can be used concurrently
 // once the Clone call completes.
 //
-// The internal tree structure of b is marked read-only and shared between b and
-// b2.  Writes to both b and b2 use copy-on-write logic, creating new nodes
+// The internal tree structure of b is marked read-only and shared between t and
+// t2.  Writes to both t and t2 use copy-on-write logic, creating new nodes
 // whenever one of b's original nodes would have been modified.  Read operations
-// should have no performance degredation.  Write operations for both b and b2
+// should have no performance degredation.  Write operations for both t and t2
 // will initially experience minor slow-downs caused by additional allocs and
 // copies due to the aforementioned copy-on-write logic, but should converge to
 // the original performance characteristics of the original tree.
-func (b *BTree) Clone() (b2 *BTree) {
+func (t *BTree) Clone() (t2 *BTree) {
 	// Create two entirely new copy-on-write contexts.
 	// This operation effectively creates three trees:
 	//   the original, shared nodes (old b.cow)
 	//   the new b.cow nodes
 	//   the new out.cow nodes
-	cow1, cow2 := *b.cow, *b.cow
-	out := *b
-	b.cow = &cow1
+	cow1, cow2 := *t.cow, *t.cow
+	out := *t
+	t.cow = &cow1
 	out.cow = &cow2
 	return &out
 }
