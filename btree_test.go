@@ -431,6 +431,48 @@ func BenchmarkDelete(b *testing.B) {
 	}
 }
 
+func BenchmarkDeleteAll(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	b.StartTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		tr := New(*btreeDegree)
+		for _, v := range insertP {
+			tr.ReplaceOrInsert(v)
+		}
+
+		dels := make([]Item, 0, tr.Len())
+		tr.Ascend(ItemIterator(func(b Item) bool {
+			dels = append(dels, b)
+			return true
+		}))
+		for _, del := range dels {
+			tr.Delete(del)
+		}
+		if tr.Len() > 0 {
+			b.Fatal(`len must be zero`)
+		}
+	}
+}
+
+func BenchmarkReset(b *testing.B) {
+	b.StopTimer()
+	insertP := perm(benchmarkTreeSize)
+	b.StartTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		tr := New(*btreeDegree)
+		for _, v := range insertP {
+			tr.ReplaceOrInsert(v)
+		}
+		tr.Reset()
+		if tr.Len() > 0 {
+			b.Fatal(`len must be zero`)
+		}
+	}
+}
+
 func BenchmarkGet(b *testing.B) {
 	b.StopTimer()
 	insertP := perm(benchmarkTreeSize)
