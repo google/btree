@@ -302,6 +302,20 @@ func (n *node) maybeSplitChild(i, maxItems int) bool {
 	return true
 }
 
+// reset will free all nodes within the given cow ctx.
+func (n *node) reset(c *copyOnWriteContext) {
+	for i := len(n.items) - 1; i >= 0; i-- {
+		if len(n.children) > 0 {
+			n.children[i+1].reset(c)
+		}
+	}
+	if len(n.children) > 0 {
+		n.children[0].reset(c)
+	} else {
+		c.freeNode(n)
+	}
+}
+
 // insert inserts an item into the subtree rooted at this node, making sure
 // no nodes in the subtree exceed maxItems items.  Should an equivalent item be
 // be found/replaced by insert, it will be returned.
@@ -620,6 +634,20 @@ func (t *BTree) Clone() (t2 *BTree) {
 	t.cow = &cow1
 	out.cow = &cow2
 	return &out
+}
+
+// Reset removes all items from the btree.
+func (t *BTree) Reset() {
+	if t.root == nil || len(t.root.items) == 0 {
+		return
+	}
+	t.root = t.root.mutableFor(t.cow)
+	t.root.reset(t.cow)
+	for _, n := range t.root.children {
+		t.cow.freeNode(n)
+	}
+	t.cow.freeNode(t.root)
+	t.root, t.length = nil, 0
 }
 
 // maxItems returns the max number of items to allow per node.
