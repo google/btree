@@ -25,7 +25,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/google/btree"
+	btree "github.com/google/btree/v2"
 	"github.com/petar/GoLLRB/llrb"
 )
 
@@ -55,7 +55,7 @@ func main() {
 		}
 		t = tr // keep it around
 	} else {
-		tr := btree.New(*degree)
+		tr := btree.New[btree.Int](*degree)
 		for _, v := range vals {
 			tr.ReplaceOrInsert(btree.Int(v))
 		}

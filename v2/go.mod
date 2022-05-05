@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-module github.com/google/btree
+module github.com/google/btree/v2
 
-go 1.12
+go 1.18
 
 require github.com/petar/GoLLRB v0.0.0-20210522233825-ae3b015fd3e9 // indirect
