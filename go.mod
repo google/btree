@@ -14,4 +14,4 @@
 
 module github.com/google/btree
 
-go 1.12
+go 1.18
