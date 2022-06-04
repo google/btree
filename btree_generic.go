@@ -128,7 +128,7 @@ type ItemIteratorG[T any] func(item T) bool
 
 // Ordered represents the set of types for which the '<' operator work.
 type Ordered interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~float32 | ~float64 | string
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~float32 | ~float64 | ~string
 }
 
 // Less[T] returns a default LessFunc that uses the '<' operator for types that support it.
