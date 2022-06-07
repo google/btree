@@ -990,6 +990,11 @@ func (t *BTree) Min() Item {
 	return i
 }
 
+// Has returns true if the given key is in the tree.
+func (t *BTree) Has(key Item) bool {
+	return (*BTreeG[Item])(t).Has(key)
+}
+
 // ReplaceOrInsert adds the given item to the tree.  If an item in the tree
 // already equals the given one, it is removed from the tree and returned.
 // Otherwise, nil is returned.
