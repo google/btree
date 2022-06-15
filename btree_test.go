@@ -91,6 +91,11 @@ func TestBTree(t *testing.T) {
 			}
 		}
 		for _, item := range perm(treeSize) {
+			if !tr.Has(item) {
+				t.Fatal("has did not find item", item)
+			}
+		}
+		for _, item := range perm(treeSize) {
 			if x := tr.ReplaceOrInsert(item); x == nil {
 				t.Fatal("insert didn't find item", item)
 			}
