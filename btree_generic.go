@@ -908,10 +908,7 @@ func (a Int) Less(b Item) bool {
 // goroutines, but Read operations are.
 type BTree BTreeG[Item]
 
-var LessCount = 0
-
 var itemLess LessFunc[Item] = func(a, b Item) bool {
-	LessCount++
 	return a.Less(b)
 }
 
