@@ -334,6 +334,19 @@ func TestDescendGreaterThanG(t *testing.T) {
 	}
 }
 
+func TestInsertGWithIndex(t *testing.T) {
+	insertP := rand.Perm(benchmarkTreeSize)
+	ordered := insertP
+	sort.Ints(ordered)
+	tr := NewOrderedG[int](*btreeDegree)
+	for want, item := range insertP {
+		_, _, got := tr.ReplaceOrInsertWithIndex(item)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("replaceorinsertwithindex:\n got: %v\nwant: %v", got, want)
+		}
+	}
+}
+
 func BenchmarkInsertG(b *testing.B) {
 	b.StopTimer()
 	insertP := rand.Perm(benchmarkTreeSize)
@@ -343,6 +356,23 @@ func BenchmarkInsertG(b *testing.B) {
 		tr := NewOrderedG[int](*btreeDegree)
 		for _, item := range insertP {
 			tr.ReplaceOrInsert(item)
+			i++
+			if i >= b.N {
+				return
+			}
+		}
+	}
+}
+
+func BenchmarkInsertGWithIndex(b *testing.B) {
+	b.StopTimer()
+	insertP := rand.Perm(benchmarkTreeSize)
+	b.StartTimer()
+	i := 0
+	for i < b.N {
+		tr := NewOrderedG[int](*btreeDegree)
+		for _, item := range insertP {
+			tr.ReplaceOrInsertWithIndex(item)
 			i++
 			if i >= b.N {
 				return
