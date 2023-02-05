@@ -578,25 +578,6 @@ type BTreeG[T any] struct {
 // ordering, and should return true if within that ordering, 'a' < 'b'.
 type LessFunc[T any] func(a, b T) bool
 
-// copyOnWriteContext pointers determine node ownership... a tree with a write
-// context equivalent to a node's write context is allowed to modify that node.
-// A tree whose write context does not match a node's is not allowed to modify
-// it, and must create a new, writable copy (IE: it's a Clone).
-//
-// When doing any write operation, we maintain the invariant that the current
-// node's context is equal to the context of the tree that requested the write.
-// We do this by, before we descend into any node, creating a copy with the
-// correct context if the contexts don't match.
-//
-// Since the node we're currently visiting on any write has the requesting
-// tree's context, that node is modifiable in place.  Children of that node may
-// not share context, but before we descend into them, we'll make a mutable
-// copy.
-type copyOnWriteContext[T any] struct {
-	freelist *FreeListG[T]
-	less     LessFunc[T]
-}
-
 // maxItems returns the max number of items to allow per node.
 func (t *BTreeG[T]) maxItems() int {
 	return t.degree*2 - 1
