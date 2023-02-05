@@ -18,12 +18,15 @@
 package btree
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"reflect"
 	"sort"
 	"testing"
 )
+
+var btreeDegree = flag.Int("degree", 32, "B-Tree degree")
 
 func intRange(s int, reverse bool) []int {
 	out := make([]int, s)
@@ -332,6 +335,8 @@ func TestDescendGreaterThanG(t *testing.T) {
 		t.Fatalf("descendgreaterthan:\n got: %v\nwant: %v", got, want)
 	}
 }
+
+const benchmarkTreeSize = 10000
 
 func BenchmarkInsertG(b *testing.B) {
 	b.StopTimer()
