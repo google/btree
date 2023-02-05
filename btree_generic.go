@@ -160,8 +160,9 @@ func NewWithFreeListG[T any](degree int, less LessFunc[T], f *FreeListG[T]) *BTr
 		panic("bad degree")
 	}
 	return &BTreeG[T]{
-		degree: degree,
-		cow:    &copyOnWriteContext[T]{freelist: f, less: less},
+		degree:   degree,
+		freelist: f,
+		less:     less,
 	}
 }
 
@@ -232,34 +233,11 @@ func (s items[T]) find(item T, less func(T, T) bool) (index int, found bool) {
 type node[T any] struct {
 	items    items[T]
 	children items[*node[T]]
-	cow      *copyOnWriteContext[T]
-}
-
-func (n *node[T]) mutableFor(cow *copyOnWriteContext[T]) *node[T] {
-	if n.cow == cow {
-		return n
-	}
-	out := cow.newNode()
-	if cap(out.items) >= len(n.items) {
-		out.items = out.items[:len(n.items)]
-	} else {
-		out.items = make(items[T], len(n.items), cap(n.items))
-	}
-	copy(out.items, n.items)
-	// Copy children
-	if cap(out.children) >= len(n.children) {
-		out.children = out.children[:len(n.children)]
-	} else {
-		out.children = make(items[*node[T]], len(n.children), cap(n.children))
-	}
-	copy(out.children, n.children)
-	return out
+	t        *BTreeG[T]
 }
 
 func (n *node[T]) mutableChild(i int) *node[T] {
-	c := n.children[i].mutableFor(n.cow)
-	n.children[i] = c
-	return c
+	return n.children[i]
 }
 
 // split splits the given node at the given index.  The current node shrinks,
@@ -267,7 +245,7 @@ func (n *node[T]) mutableChild(i int) *node[T] {
 // containing all items/children after it.
 func (n *node[T]) split(i int) (T, *node[T]) {
 	item := n.items[i]
-	next := n.cow.newNode()
+	next := n.t.newNode()
 	next.items = append(next.items, n.items[i+1:]...)
 	n.items.truncate(i)
 	if len(n.children) > 0 {
@@ -294,7 +272,7 @@ func (n *node[T]) maybeSplitChild(i, maxItems int) bool {
 // no nodes in the subtree exceed maxItems items.  Should an equivalent item be
 // be found/replaced by insert, it will be returned.
 func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
-	i, found := n.items.find(item, n.cow.less)
+	i, found := n.items.find(item, n.t.less)
 	if found {
 		out := n.items[i]
 		n.items[i] = item
@@ -307,9 +285,9 @@ func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
 	if n.maybeSplitChild(i, maxItems) {
 		inTree := n.items[i]
 		switch {
-		case n.cow.less(item, inTree):
+		case n.t.less(item, inTree):
 			// no change, we want first split node
-		case n.cow.less(inTree, item):
+		case n.t.less(inTree, item):
 			i++ // we want second split node
 		default:
 			out := n.items[i]
@@ -322,7 +300,7 @@ func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
 
 // get finds the given key in the subtree and returns it.
 func (n *node[T]) get(key T) (_ T, _ bool) {
-	i, found := n.items.find(key, n.cow.less)
+	i, found := n.items.find(key, n.t.less)
 	if found {
 		return n.items[i], true
 	} else if len(n.children) > 0 {
@@ -384,7 +362,7 @@ func (n *node[T]) remove(item T, minItems int, typ toRemove) (_ T, _ bool) {
 		}
 		i = 0
 	case removeItem:
-		i, found = n.items.find(item, n.cow.less)
+		i, found = n.items.find(item, n.t.less)
 		if len(n.children) == 0 {
 			if found {
 				return n.items.removeAt(i), true
@@ -474,7 +452,7 @@ func (n *node[T]) growChildAndRemove(i int, item T, minItems int, typ toRemove) 
 		child.items = append(child.items, mergeItem)
 		child.items = append(child.items, mergeChild.items...)
 		child.children = append(child.children, mergeChild.children...)
-		n.cow.freeNode(mergeChild)
+		n.t.freeNode(mergeChild)
 	}
 	return n.remove(item, minItems, typ)
 }
@@ -511,7 +489,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 	switch dir {
 	case ascend:
 		if start.valid {
-			index, _ = n.items.find(start.item, n.cow.less)
+			index, _ = n.items.find(start.item, n.t.less)
 		}
 		for i := index; i < len(n.items); i++ {
 			if len(n.children) > 0 {
@@ -519,12 +497,12 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 					return hit, false
 				}
 			}
-			if !includeStart && !hit && start.valid && !n.cow.less(start.item, n.items[i]) {
+			if !includeStart && !hit && start.valid && !n.t.less(start.item, n.items[i]) {
 				hit = true
 				continue
 			}
 			hit = true
-			if stop.valid && !n.cow.less(n.items[i], stop.item) {
+			if stop.valid && !n.t.less(n.items[i], stop.item) {
 				return hit, false
 			}
 			if !iter(n.items[i]) {
@@ -538,7 +516,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 		}
 	case descend:
 		if start.valid {
-			index, found = n.items.find(start.item, n.cow.less)
+			index, found = n.items.find(start.item, n.t.less)
 			if !found {
 				index = index - 1
 			}
@@ -546,8 +524,8 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 			index = len(n.items) - 1
 		}
 		for i := index; i >= 0; i-- {
-			if start.valid && !n.cow.less(n.items[i], start.item) {
-				if !includeStart || hit || n.cow.less(start.item, n.items[i]) {
+			if start.valid && !n.t.less(n.items[i], start.item) {
+				if !includeStart || hit || n.t.less(start.item, n.items[i]) {
 					continue
 				}
 			}
@@ -556,7 +534,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 					return hit, false
 				}
 			}
-			if stop.valid && !n.cow.less(stop.item, n.items[i]) {
+			if stop.valid && !n.t.less(stop.item, n.items[i]) {
 				return hit, false //	continue
 			}
 			hit = true
@@ -589,10 +567,11 @@ func (n *node[T]) print(w io.Writer, level int) {
 // Write operations are not safe for concurrent mutation by multiple
 // goroutines, but Read operations are.
 type BTreeG[T any] struct {
-	degree int
-	length int
-	root   *node[T]
-	cow    *copyOnWriteContext[T]
+	degree   int
+	length   int
+	root     *node[T]
+	freelist *FreeListG[T]
+	less     LessFunc[T]
 }
 
 // LessFunc[T] determines how to order a type 'T'.  It should implement a strict
@@ -618,30 +597,6 @@ type copyOnWriteContext[T any] struct {
 	less     LessFunc[T]
 }
 
-// Clone clones the btree, lazily.  Clone should not be called concurrently,
-// but the original tree (t) and the new tree (t2) can be used concurrently
-// once the Clone call completes.
-//
-// The internal tree structure of b is marked read-only and shared between t and
-// t2.  Writes to both t and t2 use copy-on-write logic, creating new nodes
-// whenever one of b's original nodes would have been modified.  Read operations
-// should have no performance degredation.  Write operations for both t and t2
-// will initially experience minor slow-downs caused by additional allocs and
-// copies due to the aforementioned copy-on-write logic, but should converge to
-// the original performance characteristics of the original tree.
-func (t *BTreeG[T]) Clone() (t2 *BTreeG[T]) {
-	// Create two entirely new copy-on-write contexts.
-	// This operation effectively creates three trees:
-	//   the original, shared nodes (old b.cow)
-	//   the new b.cow nodes
-	//   the new out.cow nodes
-	cow1, cow2 := *t.cow, *t.cow
-	out := *t
-	t.cow = &cow1
-	out.cow = &cow2
-	return &out
-}
-
 // maxItems returns the max number of items to allow per node.
 func (t *BTreeG[T]) maxItems() int {
 	return t.degree*2 - 1
@@ -653,37 +608,18 @@ func (t *BTreeG[T]) minItems() int {
 	return t.degree - 1
 }
 
-func (c *copyOnWriteContext[T]) newNode() (n *node[T]) {
-	n = c.freelist.newNode()
-	n.cow = c
+func (t *BTreeG[T]) newNode() (n *node[T]) {
+	n = t.freelist.newNode()
+	n.t = t
 	return
 }
 
-type freeType int
-
-const (
-	ftFreelistFull freeType = iota // node was freed (available for GC, not stored in freelist)
-	ftStored                       // node was stored in the freelist for later use
-	ftNotOwned                     // node was ignored by COW, since it's owned by another one
-)
-
-// freeNode frees a node within a given COW context, if it's owned by that
-// context.  It returns what happened to the node (see freeType const
-// documentation).
-func (c *copyOnWriteContext[T]) freeNode(n *node[T]) freeType {
-	if n.cow == c {
-		// clear to allow GC
-		n.items.truncate(0)
-		n.children.truncate(0)
-		n.cow = nil
-		if c.freelist.freeNode(n) {
-			return ftStored
-		} else {
-			return ftFreelistFull
-		}
-	} else {
-		return ftNotOwned
-	}
+func (t *BTreeG[T]) freeNode(n *node[T]) {
+	// clear to allow GC
+	n.items.truncate(0)
+	n.children.truncate(0)
+	n.t = nil // clear to allow GC
+	t.freelist.freeNode(n)
 }
 
 // ReplaceOrInsert adds the given item to the tree.  If an item in the tree
@@ -693,16 +629,15 @@ func (c *copyOnWriteContext[T]) freeNode(n *node[T]) freeType {
 // nil cannot be added to the tree (will panic).
 func (t *BTreeG[T]) ReplaceOrInsert(item T) (_ T, _ bool) {
 	if t.root == nil {
-		t.root = t.cow.newNode()
+		t.root = t.newNode()
 		t.root.items = append(t.root.items, item)
 		t.length++
 		return
 	} else {
-		t.root = t.root.mutableFor(t.cow)
 		if len(t.root.items) >= t.maxItems() {
 			item2, second := t.root.split(t.maxItems() / 2)
 			oldroot := t.root
-			t.root = t.cow.newNode()
+			t.root = t.newNode()
 			t.root.items = append(t.root.items, item2)
 			t.root.children = append(t.root.children, oldroot, second)
 		}
@@ -738,12 +673,11 @@ func (t *BTreeG[T]) deleteItem(item T, typ toRemove) (_ T, _ bool) {
 	if t.root == nil || len(t.root.items) == 0 {
 		return
 	}
-	t.root = t.root.mutableFor(t.cow)
 	out, outb := t.root.remove(item, t.minItems(), typ)
 	if len(t.root.items) == 0 && len(t.root.children) > 0 {
 		oldroot := t.root
 		t.root = t.root.children[0]
-		t.cow.freeNode(oldroot)
+		t.freelist.freeNode(oldroot)
 	}
 	if outb {
 		t.length--
@@ -875,22 +809,7 @@ func (t *BTreeG[T]) Len() int {
 //	    iterated over looking for nodes to add to the freelist, and due to
 //	    ownership, none are.
 func (t *BTreeG[T]) Clear(addNodesToFreelist bool) {
-	if t.root != nil && addNodesToFreelist {
-		t.root.reset(t.cow)
-	}
 	t.root, t.length = nil, 0
-}
-
-// reset returns a subtree to the freelist.  It breaks out immediately if the
-// freelist is full, since the only benefit of iterating is to fill that
-// freelist up.  Returns true if parent reset call should continue.
-func (n *node[T]) reset(c *copyOnWriteContext[T]) bool {
-	for _, child := range n.children {
-		if !child.reset(c) {
-			return false
-		}
-	}
-	return c.freeNode(n) != ftFreelistFull
 }
 
 // Int implements the Item interface for integers.
@@ -943,21 +862,6 @@ func NewWithFreeList(degree int, f *FreeList) *BTree {
 // the tree.  When this function returns false, iteration will stop and the
 // associated Ascend* function will immediately return.
 type ItemIterator ItemIteratorG[Item]
-
-// Clone clones the btree, lazily.  Clone should not be called concurrently,
-// but the original tree (t) and the new tree (t2) can be used concurrently
-// once the Clone call completes.
-//
-// The internal tree structure of b is marked read-only and shared between t and
-// t2.  Writes to both t and t2 use copy-on-write logic, creating new nodes
-// whenever one of b's original nodes would have been modified.  Read operations
-// should have no performance degredation.  Write operations for both t and t2
-// will initially experience minor slow-downs caused by additional allocs and
-// copies due to the aforementioned copy-on-write logic, but should converge to
-// the original performance characteristics of the original tree.
-func (t *BTree) Clone() (t2 *BTree) {
-	return (*BTree)((*BTreeG[Item])(t).Clone())
-}
 
 // Delete removes an item equal to the passed in item from the tree, returning
 // it.  If no such item exists, returns nil.
