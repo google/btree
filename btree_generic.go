@@ -552,6 +552,8 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 }
 
 // print is used for testing/debugging purposes.
+//
+//nolint:unused
 func (n *node[T]) print(w io.Writer, level int) {
 	fmt.Fprintf(w, "%sNODE:%v\n", strings.Repeat("  ", level), n.items)
 	for _, c := range n.children {
