@@ -85,22 +85,22 @@ const (
 	DefaultFreeListSize = 32
 )
 
-// FreeListG represents a free list of btree nodes. By default each
+// FreeList represents a free list of btree nodes. By default each
 // BTree has its own FreeList, but multiple BTrees can share the same
 // FreeList, in particular when they're created with Clone.
 // Two Btrees using the same freelist are safe for concurrent write access.
-type FreeListG[T any] struct {
+type FreeList[T any] struct {
 	mu       sync.Mutex
 	freelist []*node[T]
 }
 
-// NewFreeListG creates a new free list.
+// NewFreeList creates a new free list.
 // size is the maximum size of the returned free list.
-func NewFreeListG[T any](size int) *FreeListG[T] {
-	return &FreeListG[T]{freelist: make([]*node[T], 0, size)}
+func NewFreeList[T any](size int) *FreeList[T] {
+	return &FreeList[T]{freelist: make([]*node[T], 0, size)}
 }
 
-func (f *FreeListG[T]) newNode() (n *node[T]) {
+func (f *FreeList[T]) newNode() (n *node[T]) {
 	f.mu.Lock()
 	index := len(f.freelist) - 1
 	if index < 0 {
@@ -114,7 +114,7 @@ func (f *FreeListG[T]) newNode() (n *node[T]) {
 	return
 }
 
-func (f *FreeListG[T]) freeNode(n *node[T]) (out bool) {
+func (f *FreeList[T]) freeNode(n *node[T]) (out bool) {
 	f.mu.Lock()
 	if len(f.freelist) < cap(f.freelist) {
 		f.freelist = append(f.freelist, n)
@@ -124,10 +124,10 @@ func (f *FreeListG[T]) freeNode(n *node[T]) (out bool) {
 	return
 }
 
-// ItemIteratorG allows callers of {A/De}scend* to iterate in-order over portions of
+// ItemIterator allows callers of {A/De}scend* to iterate in-order over portions of
 // the tree.  When this function returns false, iteration will stop and the
 // associated Ascend* function will immediately return.
-type ItemIteratorG[T any] func(item T) bool
+type ItemIterator[T any] func(item T) bool
 
 // Ordered represents the set of types for which the '<' operator work.
 type Ordered interface {
@@ -139,27 +139,27 @@ func Less[T Ordered]() LessFunc[T] {
 	return func(a, b T) bool { return a < b }
 }
 
-// NewOrderedG creates a new B-Tree for ordered types.
-func NewOrderedG[T Ordered](degree int) *BTreeG[T] {
-	return NewG[T](degree, Less[T]())
+// NewOrdered creates a new B-Tree for ordered types.
+func NewOrdered[T Ordered](degree int) *BTree[T] {
+	return New(degree, Less[T]())
 }
 
-// NewG creates a new B-Tree with the given degree.
+// New creates a new B-Tree with the given degree.
 //
-// NewG(2), for example, will create a 2-3-4 tree (each node contains 1-3 items
+// New(2), for example, will create a 2-3-4 tree (each node contains 1-3 items
 // and 2-4 children).
 //
 // The passed-in LessFunc determines how objects of type T are ordered.
-func NewG[T any](degree int, less LessFunc[T]) *BTreeG[T] {
-	return NewWithFreeListG(degree, less, NewFreeListG[T](DefaultFreeListSize))
+func New[T any](degree int, less LessFunc[T]) *BTree[T] {
+	return NewWithFreeList(degree, less, NewFreeList[T](DefaultFreeListSize))
 }
 
-// NewWithFreeListG creates a new B-Tree that uses the given node free list.
-func NewWithFreeListG[T any](degree int, less LessFunc[T], f *FreeListG[T]) *BTreeG[T] {
+// NewWithFreeList creates a new B-Tree that uses the given node free list.
+func NewWithFreeList[T any](degree int, less LessFunc[T], f *FreeList[T]) *BTree[T] {
 	if degree <= 1 {
 		panic("bad degree")
 	}
-	return &BTreeG[T]{
+	return &BTree[T]{
 		degree:   degree,
 		freelist: f,
 		less:     less,
@@ -233,7 +233,7 @@ func (s items[T]) find(item T, less func(T, T) bool) (index int, found bool) {
 type node[T any] struct {
 	items    items[T]
 	children items[*node[T]]
-	t        *BTreeG[T]
+	t        *BTree[T]
 }
 
 func (n *node[T]) mutableChild(i int) *node[T] {
@@ -483,7 +483,7 @@ func empty[T any]() optionalItem[T] {
 // will force the iterator to include the first item when it equals 'start',
 // thus creating a "greaterOrEqual" or "lessThanEqual" rather than just a
 // "greaterThan" or "lessThan" queries.
-func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeStart bool, hit bool, iter ItemIteratorG[T]) (bool, bool) {
+func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeStart bool, hit bool, iter ItemIterator[T]) (bool, bool) {
 	var ok, found bool
 	var index int
 	switch dir {
@@ -559,18 +559,18 @@ func (n *node[T]) print(w io.Writer, level int) {
 	}
 }
 
-// BTreeG is a generic implementation of a B-Tree.
+// BTree is a generic implementation of a B-Tree.
 //
-// BTreeG stores items of type T in an ordered structure, allowing easy insertion,
+// BTree stores items of type T in an ordered structure, allowing easy insertion,
 // removal, and iteration.
 //
 // Write operations are not safe for concurrent mutation by multiple
 // goroutines, but Read operations are.
-type BTreeG[T any] struct {
+type BTree[T any] struct {
 	degree   int
 	length   int
 	root     *node[T]
-	freelist *FreeListG[T]
+	freelist *FreeList[T]
 	less     LessFunc[T]
 }
 
@@ -579,23 +579,23 @@ type BTreeG[T any] struct {
 type LessFunc[T any] func(a, b T) bool
 
 // maxItems returns the max number of items to allow per node.
-func (t *BTreeG[T]) maxItems() int {
+func (t *BTree[T]) maxItems() int {
 	return t.degree*2 - 1
 }
 
 // minItems returns the min number of items to allow per node (ignored for the
 // root node).
-func (t *BTreeG[T]) minItems() int {
+func (t *BTree[T]) minItems() int {
 	return t.degree - 1
 }
 
-func (t *BTreeG[T]) newNode() (n *node[T]) {
+func (t *BTree[T]) newNode() (n *node[T]) {
 	n = t.freelist.newNode()
 	n.t = t
 	return
 }
 
-func (t *BTreeG[T]) freeNode(n *node[T]) {
+func (t *BTree[T]) freeNode(n *node[T]) {
 	// clear to allow GC
 	n.items.truncate(0)
 	n.children.truncate(0)
@@ -608,7 +608,7 @@ func (t *BTreeG[T]) freeNode(n *node[T]) {
 // and the second return value is true.  Otherwise, (zeroValue, false)
 //
 // nil cannot be added to the tree (will panic).
-func (t *BTreeG[T]) ReplaceOrInsert(item T) (_ T, _ bool) {
+func (t *BTree[T]) ReplaceOrInsert(item T) (_ T, _ bool) {
 	if t.root == nil {
 		t.root = t.newNode()
 		t.root.items = append(t.root.items, item)
@@ -632,25 +632,25 @@ func (t *BTreeG[T]) ReplaceOrInsert(item T) (_ T, _ bool) {
 
 // Delete removes an item equal to the passed in item from the tree, returning
 // it.  If no such item exists, returns (zeroValue, false).
-func (t *BTreeG[T]) Delete(item T) (T, bool) {
+func (t *BTree[T]) Delete(item T) (T, bool) {
 	return t.deleteItem(item, removeItem)
 }
 
 // DeleteMin removes the smallest item in the tree and returns it.
 // If no such item exists, returns (zeroValue, false).
-func (t *BTreeG[T]) DeleteMin() (T, bool) {
+func (t *BTree[T]) DeleteMin() (T, bool) {
 	var zero T
 	return t.deleteItem(zero, removeMin)
 }
 
 // DeleteMax removes the largest item in the tree and returns it.
 // If no such item exists, returns (zeroValue, false).
-func (t *BTreeG[T]) DeleteMax() (T, bool) {
+func (t *BTree[T]) DeleteMax() (T, bool) {
 	var zero T
 	return t.deleteItem(zero, removeMax)
 }
 
-func (t *BTreeG[T]) deleteItem(item T, typ toRemove) (_ T, _ bool) {
+func (t *BTree[T]) deleteItem(item T, typ toRemove) (_ T, _ bool) {
 	if t.root == nil || len(t.root.items) == 0 {
 		return
 	}
@@ -668,16 +668,16 @@ func (t *BTreeG[T]) deleteItem(item T, typ toRemove) (_ T, _ bool) {
 
 // AscendRange calls the iterator for every value in the tree within the range
 // [greaterOrEqual, lessThan), until iterator returns false.
-func (t *BTreeG[T]) AscendRange(greaterOrEqual, lessThan T, iterator ItemIteratorG[T]) {
+func (t *BTree[T]) AscendRange(greaterOrEqual, lessThan T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, optional[T](greaterOrEqual), optional[T](lessThan), true, false, iterator)
+	t.root.iterate(ascend, optional(greaterOrEqual), optional(lessThan), true, false, iterator)
 }
 
 // AscendLessThan calls the iterator for every value in the tree within the range
 // [first, pivot), until iterator returns false.
-func (t *BTreeG[T]) AscendLessThan(pivot T, iterator ItemIteratorG[T]) {
+func (t *BTree[T]) AscendLessThan(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
@@ -686,16 +686,16 @@ func (t *BTreeG[T]) AscendLessThan(pivot T, iterator ItemIteratorG[T]) {
 
 // AscendGreaterOrEqual calls the iterator for every value in the tree within
 // the range [pivot, last], until iterator returns false.
-func (t *BTreeG[T]) AscendGreaterOrEqual(pivot T, iterator ItemIteratorG[T]) {
+func (t *BTree[T]) AscendGreaterOrEqual(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, optional[T](pivot), empty[T](), true, false, iterator)
+	t.root.iterate(ascend, optional(pivot), empty[T](), true, false, iterator)
 }
 
 // Ascend calls the iterator for every value in the tree within the range
 // [first, last], until iterator returns false.
-func (t *BTreeG[T]) Ascend(iterator ItemIteratorG[T]) {
+func (t *BTree[T]) Ascend(iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
@@ -704,34 +704,34 @@ func (t *BTreeG[T]) Ascend(iterator ItemIteratorG[T]) {
 
 // DescendRange calls the iterator for every value in the tree within the range
 // [lessOrEqual, greaterThan), until iterator returns false.
-func (t *BTreeG[T]) DescendRange(lessOrEqual, greaterThan T, iterator ItemIteratorG[T]) {
+func (t *BTree[T]) DescendRange(lessOrEqual, greaterThan T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, optional[T](lessOrEqual), optional[T](greaterThan), true, false, iterator)
+	t.root.iterate(descend, optional(lessOrEqual), optional(greaterThan), true, false, iterator)
 }
 
 // DescendLessOrEqual calls the iterator for every value in the tree within the range
 // [pivot, first], until iterator returns false.
-func (t *BTreeG[T]) DescendLessOrEqual(pivot T, iterator ItemIteratorG[T]) {
+func (t *BTree[T]) DescendLessOrEqual(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, optional[T](pivot), empty[T](), true, false, iterator)
+	t.root.iterate(descend, optional(pivot), empty[T](), true, false, iterator)
 }
 
 // DescendGreaterThan calls the iterator for every value in the tree within
 // the range [last, pivot), until iterator returns false.
-func (t *BTreeG[T]) DescendGreaterThan(pivot T, iterator ItemIteratorG[T]) {
+func (t *BTree[T]) DescendGreaterThan(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, empty[T](), optional[T](pivot), false, false, iterator)
+	t.root.iterate(descend, empty[T](), optional(pivot), false, false, iterator)
 }
 
 // Descend calls the iterator for every value in the tree within the range
 // [last, first], until iterator returns false.
-func (t *BTreeG[T]) Descend(iterator ItemIteratorG[T]) {
+func (t *BTree[T]) Descend(iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
@@ -740,7 +740,7 @@ func (t *BTreeG[T]) Descend(iterator ItemIteratorG[T]) {
 
 // Get looks for the key item in the tree, returning it.  It returns
 // (zeroValue, false) if unable to find that item.
-func (t *BTreeG[T]) Get(key T) (_ T, _ bool) {
+func (t *BTree[T]) Get(key T) (_ T, _ bool) {
 	if t.root == nil {
 		return
 	}
@@ -748,23 +748,23 @@ func (t *BTreeG[T]) Get(key T) (_ T, _ bool) {
 }
 
 // Min returns the smallest item in the tree, or (zeroValue, false) if the tree is empty.
-func (t *BTreeG[T]) Min() (_ T, _ bool) {
+func (t *BTree[T]) Min() (_ T, _ bool) {
 	return min(t.root)
 }
 
 // Max returns the largest item in the tree, or (zeroValue, false) if the tree is empty.
-func (t *BTreeG[T]) Max() (_ T, _ bool) {
+func (t *BTree[T]) Max() (_ T, _ bool) {
 	return max(t.root)
 }
 
 // Has returns true if the given key is in the tree.
-func (t *BTreeG[T]) Has(key T) bool {
+func (t *BTree[T]) Has(key T) bool {
 	_, ok := t.Get(key)
 	return ok
 }
 
 // Len returns the number of items currently in the tree.
-func (t *BTreeG[T]) Len() int {
+func (t *BTree[T]) Len() int {
 	return t.length
 }
 
@@ -789,7 +789,7 @@ func (t *BTreeG[T]) Len() int {
 //	O(tree size):  when all nodes are owned by another tree, all nodes are
 //	    iterated over looking for nodes to add to the freelist, and due to
 //	    ownership, none are.
-func (t *BTreeG[T]) Clear(addNodesToFreelist bool) {
+func (t *BTree[T]) Clear(addNodesToFreelist bool) {
 	t.root, t.length = nil, 0
 }
 
