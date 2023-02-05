@@ -71,32 +71,27 @@ import (
 	"sync"
 )
 
-// Item represents a single object in the tree.
-type Item interface {
-	// Less tests whether the current item is less than the given argument.
-	//
-	// This must provide a strict weak ordering.
-	// If !a.Less(b) && !b.Less(a), we treat this to mean a == b (i.e. we can only
-	// hold one of either a or b in the tree).
-	Less(than Item) bool
-}
-
 const (
 	DefaultFreeListSize = 32
 )
+
+type Item[T any] interface {
+	DeepCopy() T
+	Less(T) bool
+}
 
 // FreeList represents a free list of btree nodes. By default each
 // BTree has its own FreeList, but multiple BTrees can share the same
 // FreeList, in particular when they're created with Clone.
 // Two Btrees using the same freelist are safe for concurrent write access.
-type FreeList[T any] struct {
+type FreeList[T Item[T]] struct {
 	mu       sync.Mutex
 	freelist []*node[T]
 }
 
 // NewFreeList creates a new free list.
 // size is the maximum size of the returned free list.
-func NewFreeList[T any](size int) *FreeList[T] {
+func NewFreeList[T Item[T]](size int) *FreeList[T] {
 	return &FreeList[T]{freelist: make([]*node[T], 0, size)}
 }
 
@@ -127,22 +122,7 @@ func (f *FreeList[T]) freeNode(n *node[T]) (out bool) {
 // ItemIterator allows callers of {A/De}scend* to iterate in-order over portions of
 // the tree.  When this function returns false, iteration will stop and the
 // associated Ascend* function will immediately return.
-type ItemIterator[T any] func(item T) bool
-
-// Ordered represents the set of types for which the '<' operator work.
-type Ordered interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~float32 | ~float64 | ~string
-}
-
-// Less[T] returns a default LessFunc that uses the '<' operator for types that support it.
-func Less[T Ordered]() LessFunc[T] {
-	return func(a, b T) bool { return a < b }
-}
-
-// NewOrdered creates a new B-Tree for ordered types.
-func NewOrdered[T Ordered](degree int) *BTree[T] {
-	return New(degree, Less[T]())
-}
+type ItemIterator[T Item[T]] func(item T) bool
 
 // New creates a new B-Tree with the given degree.
 //
@@ -150,24 +130,23 @@ func NewOrdered[T Ordered](degree int) *BTree[T] {
 // and 2-4 children).
 //
 // The passed-in LessFunc determines how objects of type T are ordered.
-func New[T any](degree int, less LessFunc[T]) *BTree[T] {
-	return NewWithFreeList(degree, less, NewFreeList[T](DefaultFreeListSize))
+func New[T Item[T]](degree int) *BTree[T] {
+	return NewWithFreeList(degree, NewFreeList[T](DefaultFreeListSize))
 }
 
 // NewWithFreeList creates a new B-Tree that uses the given node free list.
-func NewWithFreeList[T any](degree int, less LessFunc[T], f *FreeList[T]) *BTree[T] {
+func NewWithFreeList[T Item[T]](degree int, f *FreeList[T]) *BTree[T] {
 	if degree <= 1 {
 		panic("bad degree")
 	}
 	return &BTree[T]{
 		degree:   degree,
 		freelist: f,
-		less:     less,
 	}
 }
 
 // items stores items in a node.
-type items[T any] []T
+type items[T Item[T]] []T
 
 // insertAt inserts a value into the given index, pushing all subsequent values
 // forward.
@@ -215,14 +194,22 @@ func (s *items[T]) truncate(index int) {
 // find returns the index where the given item should be inserted into this
 // list.  'found' is true if the item already exists in the list at the given
 // index.
-func (s items[T]) find(item T, less func(T, T) bool) (index int, found bool) {
+func (s items[T]) find(item T) (index int, found bool) {
 	i := sort.Search(len(s), func(i int) bool {
-		return less(item, s[i])
+		return item.Less(s[i])
 	})
-	if i > 0 && !less(s[i-1], item) {
+	if i > 0 && !s[i-1].Less(item) {
 		return i - 1, true
 	}
 	return i, false
+}
+
+func (s items[T]) DeepCopy() items[T] {
+	s2 := make(items[T], 0, cap(s))
+	for _, item := range s {
+		s2 = append(s2, item.DeepCopy())
+	}
+	return s2
 }
 
 // node is an internal node in a tree.
@@ -230,10 +217,26 @@ func (s items[T]) find(item T, less func(T, T) bool) (index int, found bool) {
 // It must at all times maintain the invariant that either
 //   - len(children) == 0, len(items) unconstrained
 //   - len(children) == len(items) + 1
-type node[T any] struct {
+type node[T Item[T]] struct {
 	items    items[T]
 	children items[*node[T]]
 	t        *BTree[T]
+}
+
+func (n *node[T]) Less(*node[T]) bool {
+	panic("*node[T] should not call Less(*node[T])")
+}
+
+func (n *node[T]) DeepCopy() *node[T] {
+	n2 := &node[T]{
+		items:    make(items[T], 0, cap(n.items)),
+		children: make(items[*node[T]], 0, cap(n.children)),
+	}
+
+	n2.items = n.items.DeepCopy()
+	n2.children = n.children.DeepCopy()
+
+	return n2
 }
 
 // split splits the given node at the given index.  The current node shrinks,
@@ -268,7 +271,7 @@ func (n *node[T]) maybeSplitChild(i, maxItems int) bool {
 // no nodes in the subtree exceed maxItems items.  Should an equivalent item be
 // be found/replaced by insert, it will be returned.
 func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
-	i, found := n.items.find(item, n.t.less)
+	i, found := n.items.find(item)
 	if found {
 		out := n.items[i]
 		n.items[i] = item
@@ -281,9 +284,9 @@ func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
 	if n.maybeSplitChild(i, maxItems) {
 		inTree := n.items[i]
 		switch {
-		case n.t.less(item, inTree):
+		case item.Less(inTree):
 			// no change, we want first split node
-		case n.t.less(inTree, item):
+		case inTree.Less(item):
 			i++ // we want second split node
 		default:
 			out := n.items[i]
@@ -296,7 +299,7 @@ func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
 
 // get finds the given key in the subtree and returns it.
 func (n *node[T]) get(key T) (_ T, _ bool) {
-	i, found := n.items.find(key, n.t.less)
+	i, found := n.items.find(key)
 	if found {
 		return n.items[i], true
 	} else if len(n.children) > 0 {
@@ -306,7 +309,7 @@ func (n *node[T]) get(key T) (_ T, _ bool) {
 }
 
 // min returns the first item in the subtree.
-func min[T any](n *node[T]) (_ T, found bool) {
+func min[T Item[T]](n *node[T]) (_ T, found bool) {
 	if n == nil {
 		return
 	}
@@ -320,7 +323,7 @@ func min[T any](n *node[T]) (_ T, found bool) {
 }
 
 // max returns the last item in the subtree.
-func max[T any](n *node[T]) (_ T, found bool) {
+func max[T Item[T]](n *node[T]) (_ T, found bool) {
 	if n == nil {
 		return
 	}
@@ -358,7 +361,7 @@ func (n *node[T]) remove(item T, minItems int, typ toRemove) (_ T, _ bool) {
 		}
 		i = 0
 	case removeItem:
-		i, found = n.items.find(item, n.t.less)
+		i, found = n.items.find(item)
 		if len(n.children) == 0 {
 			if found {
 				return n.items.removeAt(i), true
@@ -460,15 +463,15 @@ const (
 	ascend  = direction(+1)
 )
 
-type optionalItem[T any] struct {
+type optionalItem[T Item[T]] struct {
 	item  T
 	valid bool
 }
 
-func optional[T any](item T) optionalItem[T] {
+func optional[T Item[T]](item T) optionalItem[T] {
 	return optionalItem[T]{item: item, valid: true}
 }
-func empty[T any]() optionalItem[T] {
+func empty[T Item[T]]() optionalItem[T] {
 	return optionalItem[T]{}
 }
 
@@ -485,7 +488,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 	switch dir {
 	case ascend:
 		if start.valid {
-			index, _ = n.items.find(start.item, n.t.less)
+			index, _ = n.items.find(start.item)
 		}
 		for i := index; i < len(n.items); i++ {
 			if len(n.children) > 0 {
@@ -493,12 +496,12 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 					return hit, false
 				}
 			}
-			if !includeStart && !hit && start.valid && !n.t.less(start.item, n.items[i]) {
+			if !includeStart && !hit && start.valid && !start.item.Less(n.items[i]) {
 				hit = true
 				continue
 			}
 			hit = true
-			if stop.valid && !n.t.less(n.items[i], stop.item) {
+			if stop.valid && !n.items[i].Less(stop.item) {
 				return hit, false
 			}
 			if !iter(n.items[i]) {
@@ -512,7 +515,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 		}
 	case descend:
 		if start.valid {
-			index, found = n.items.find(start.item, n.t.less)
+			index, found = n.items.find(start.item)
 			if !found {
 				index = index - 1
 			}
@@ -520,8 +523,8 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 			index = len(n.items) - 1
 		}
 		for i := index; i >= 0; i-- {
-			if start.valid && !n.t.less(n.items[i], start.item) {
-				if !includeStart || hit || n.t.less(start.item, n.items[i]) {
+			if start.valid && !n.items[i].Less(start.item) {
+				if !includeStart || hit || start.item.Less(n.items[i]) {
 					continue
 				}
 			}
@@ -530,7 +533,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 					return hit, false
 				}
 			}
-			if stop.valid && !n.t.less(stop.item, n.items[i]) {
+			if stop.valid && !stop.item.Less(n.items[i]) {
 				return hit, false //	continue
 			}
 			hit = true
@@ -564,17 +567,33 @@ func (n *node[T]) print(w io.Writer, level int) {
 //
 // Write operations are not safe for concurrent mutation by multiple
 // goroutines, but Read operations are.
-type BTree[T any] struct {
+type BTree[T Item[T]] struct {
 	degree   int
 	length   int
 	root     *node[T]
 	freelist *FreeList[T]
-	less     LessFunc[T]
+}
+
+func recurse[T Item[T]](t *BTree[T], n *node[T]) {
+	for _, n2 := range n.children {
+		recurse(t, n2)
+	}
+	n.t = t
+}
+
+func (t *BTree[T]) DeepCopy() *BTree[T] {
+	t2 := New[T](t.degree)
+	t2.root = t.root.DeepCopy()
+	t2.length = t.length
+
+	recurse(t2, t2.root)
+
+	return t2
 }
 
 // LessFunc[T] determines how to order a type 'T'.  It should implement a strict
 // ordering, and should return true if within that ordering, 'a' < 'b'.
-type LessFunc[T any] func(a, b T) bool
+type LessFunc[T Item[T]] func(a, b T) bool
 
 // maxItems returns the max number of items to allow per node.
 func (t *BTree[T]) maxItems() int {
@@ -656,7 +675,7 @@ func (t *BTree[T]) deleteItem(item T, typ toRemove) (_ T, _ bool) {
 	if len(t.root.items) == 0 && len(t.root.children) > 0 {
 		oldroot := t.root
 		t.root = t.root.children[0]
-		t.freelist.freeNode(oldroot)
+		t.freeNode(oldroot)
 	}
 	if outb {
 		t.length--
@@ -670,7 +689,7 @@ func (t *BTree[T]) AscendRange(greaterOrEqual, lessThan T, iterator ItemIterator
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, optional(greaterOrEqual), optional(lessThan), true, false, iterator)
+	t.root.iterate(ascend, optional[T](greaterOrEqual), optional[T](lessThan), true, false, iterator)
 }
 
 // AscendLessThan calls the iterator for every value in the tree within the range
@@ -679,7 +698,7 @@ func (t *BTree[T]) AscendLessThan(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, empty[T](), optional(pivot), false, false, iterator)
+	t.root.iterate(ascend, empty[T](), optional[T](pivot), false, false, iterator)
 }
 
 // AscendGreaterOrEqual calls the iterator for every value in the tree within
@@ -688,7 +707,7 @@ func (t *BTree[T]) AscendGreaterOrEqual(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, optional(pivot), empty[T](), true, false, iterator)
+	t.root.iterate(ascend, optional[T](pivot), empty[T](), true, false, iterator)
 }
 
 // Ascend calls the iterator for every value in the tree within the range
@@ -706,7 +725,7 @@ func (t *BTree[T]) DescendRange(lessOrEqual, greaterThan T, iterator ItemIterato
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, optional(lessOrEqual), optional(greaterThan), true, false, iterator)
+	t.root.iterate(descend, optional[T](lessOrEqual), optional[T](greaterThan), true, false, iterator)
 }
 
 // DescendLessOrEqual calls the iterator for every value in the tree within the range
@@ -715,7 +734,7 @@ func (t *BTree[T]) DescendLessOrEqual(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, optional(pivot), empty[T](), true, false, iterator)
+	t.root.iterate(descend, optional[T](pivot), empty[T](), true, false, iterator)
 }
 
 // DescendGreaterThan calls the iterator for every value in the tree within
@@ -724,7 +743,7 @@ func (t *BTree[T]) DescendGreaterThan(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, empty[T](), optional(pivot), false, false, iterator)
+	t.root.iterate(descend, empty[T](), optional[T](pivot), false, false, iterator)
 }
 
 // Descend calls the iterator for every value in the tree within the range
@@ -789,12 +808,4 @@ func (t *BTree[T]) Len() int {
 //	    ownership, none are.
 func (t *BTree[T]) Clear(addNodesToFreelist bool) {
 	t.root, t.length = nil, 0
-}
-
-// Int implements the Item interface for integers.
-type Int int
-
-// Less returns true if int(a) < int(b).
-func (a Int) Less(b Item) bool {
-	return a < b.(Int)
 }
