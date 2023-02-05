@@ -236,10 +236,6 @@ type node[T any] struct {
 	t        *BTree[T]
 }
 
-func (n *node[T]) mutableChild(i int) *node[T] {
-	return n.children[i]
-}
-
 // split splits the given node at the given index.  The current node shrinks,
 // and this function returns the item that existed at that index and a new node
 // containing all items/children after it.
@@ -261,7 +257,7 @@ func (n *node[T]) maybeSplitChild(i, maxItems int) bool {
 	if len(n.children[i].items) < maxItems {
 		return false
 	}
-	first := n.mutableChild(i)
+	first := n.children[i]
 	item, second := first.split(maxItems / 2)
 	n.items.insertAt(i, item)
 	n.children.insertAt(i+1, second)
@@ -295,7 +291,7 @@ func (n *node[T]) insert(item T, maxItems int) (_ T, _ bool) {
 			return out, true
 		}
 	}
-	return n.mutableChild(i).insert(item, maxItems)
+	return n.children[i].insert(item, maxItems)
 }
 
 // get finds the given key in the subtree and returns it.
@@ -376,7 +372,7 @@ func (n *node[T]) remove(item T, minItems int, typ toRemove) (_ T, _ bool) {
 	if len(n.children[i].items) <= minItems {
 		return n.growChildAndRemove(i, item, minItems, typ)
 	}
-	child := n.mutableChild(i)
+	child := n.children[i]
 	// Either we had enough items to begin with, or we've done some
 	// merging/stealing, because we've got enough now and we're ready to return
 	// stuff.
@@ -423,8 +419,8 @@ func (n *node[T]) remove(item T, minItems int, typ toRemove) (_ T, _ bool) {
 func (n *node[T]) growChildAndRemove(i int, item T, minItems int, typ toRemove) (T, bool) {
 	if i > 0 && len(n.children[i-1].items) > minItems {
 		// Steal from left child
-		child := n.mutableChild(i)
-		stealFrom := n.mutableChild(i - 1)
+		child := n.children[i]
+		stealFrom := n.children[i-1]
 		stolenItem := stealFrom.items.pop()
 		child.items.insertAt(0, n.items[i-1])
 		n.items[i-1] = stolenItem
@@ -433,8 +429,8 @@ func (n *node[T]) growChildAndRemove(i int, item T, minItems int, typ toRemove) 
 		}
 	} else if i < len(n.items) && len(n.children[i+1].items) > minItems {
 		// steal from right child
-		child := n.mutableChild(i)
-		stealFrom := n.mutableChild(i + 1)
+		child := n.children[i]
+		stealFrom := n.children[i+1]
 		stolenItem := stealFrom.items.removeAt(0)
 		child.items = append(child.items, n.items[i])
 		n.items[i] = stolenItem
@@ -445,7 +441,7 @@ func (n *node[T]) growChildAndRemove(i int, item T, minItems int, typ toRemove) 
 		if i >= len(n.items) {
 			i--
 		}
-		child := n.mutableChild(i)
+		child := n.children[i]
 		// merge with right child
 		mergeItem := n.items.removeAt(i)
 		mergeChild := n.children.removeAt(i + 1)
