@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build go1.18
-// +build go1.18
-
-// In Go 1.18 and beyond, a BTreeG generic is created, and BTree is a specific
-// instantiation of that generic for the Item interface, with a backwards-
-// compatible API.  Before go1.18, generics are not supported,
-// and BTree is just an implementation based around the Item interface.
-
 // Package btree implements in-memory B-Trees of arbitrary degree.
 //
 // btree implements an in-memory B-Tree for use as an ordered data structure.
@@ -74,12 +66,6 @@ import (
 const (
 	DefaultFreeListSize = 32
 )
-
-// Item is the BTree objects interface.
-type Item[T any] interface {
-	Less(T) bool
-	DeepCopy() T
-}
 
 // FreeList represents a free list of btree nodes. By default each
 // BTree has its own FreeList, but multiple BTrees can share the same
@@ -575,10 +561,11 @@ type BTree[T Item[T]] struct {
 	freelist *FreeList[T]
 }
 
-func recurse[T Item[T]](t *BTree[T], n *node[T]) {
+func setBTreeRootRecursive[T Item[T]](t *BTree[T], n *node[T]) {
 	for _, n2 := range n.children {
-		recurse(t, n2)
+		setBTreeRootRecursive(t, n2)
 	}
+
 	n.t = t
 }
 
@@ -587,7 +574,7 @@ func (t *BTree[T]) DeepCopy() *BTree[T] {
 	t2.root = t.root.DeepCopy()
 	t2.length = t.length
 
-	recurse(t2, t2.root)
+	setBTreeRootRecursive(t2, t2.root)
 
 	return t2
 }
