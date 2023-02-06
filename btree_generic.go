@@ -75,9 +75,10 @@ const (
 	DefaultFreeListSize = 32
 )
 
+// Item is the BTree objects interface.
 type Item[T any] interface {
-	DeepCopy() T
 	Less(T) bool
+	DeepCopy() T
 }
 
 // FreeList represents a free list of btree nodes. By default each
