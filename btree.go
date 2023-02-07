@@ -193,9 +193,11 @@ func (s items[T]) find(item T) (index int, found bool) {
 
 func (s items[T]) DeepCopy() items[T] {
 	s2 := make(items[T], 0, cap(s))
+
 	for _, item := range s {
 		s2 = append(s2, item.DeepCopy())
 	}
+
 	return s2
 }
 
@@ -216,12 +218,9 @@ func (n *node[T]) Less(*node[T]) bool {
 
 func (n *node[T]) DeepCopy() *node[T] {
 	n2 := &node[T]{
-		items:    make(items[T], 0, cap(n.items)),
-		children: make(items[*node[T]], 0, cap(n.children)),
+		items:    n.items.DeepCopy(),
+		children: n.children.DeepCopy(),
 	}
-
-	n2.items = n.items.DeepCopy()
-	n2.children = n.children.DeepCopy()
 
 	return n2
 }
