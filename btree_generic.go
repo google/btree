@@ -230,6 +230,14 @@ type node[T any] struct {
 	items    items[T]
 	children items[*node[T]]
 	cow      *copyOnWriteContext[T]
+	size     int
+}
+
+func (n *node[T]) resize() {
+	n.size = len(n.items)
+	for _, c := range n.children {
+		n.size += c.size
+	}
 }
 
 func (n *node[T]) mutableFor(cow *copyOnWriteContext[T]) *node[T] {
@@ -271,6 +279,8 @@ func (n *node[T]) split(i int) (T, *node[T]) {
 		next.children = append(next.children, n.children[i+1:]...)
 		n.children.truncate(i + 1)
 	}
+	next.resize()
+	n.resize()
 	return item, next
 }
 
@@ -285,6 +295,39 @@ func (n *node[T]) maybeSplitChild(i, maxItems int) bool {
 	n.items.insertAt(i, item)
 	n.children.insertAt(i+1, second)
 	return true
+}
+
+// insertWithIndex inserts an item into the subtree rooted at this node, making sure
+// no nodes in the subtree exceed maxItems items.  Should an equivalent item be
+// be found/replaced by insert, it will be returned. IndexSet holds children
+// index path to inserted element; last indexSet element is inserted item index.
+func (n *node[T]) insertWithIndex(item T, maxItems int, indexSet []int) (_ T, _ bool, _ []int) {
+	i, found := n.items.find(item, n.cow.less)
+	if found {
+		out := n.items[i]
+		n.items[i] = item
+		return out, true, indexSet
+	}
+	indexSet = append(indexSet, i)
+	if len(n.children) == 0 {
+		n.items.insertAt(i, item)
+		return n.items[i], false, indexSet
+	}
+	if n.maybeSplitChild(i, maxItems) {
+		inTree := n.items[i]
+		switch {
+		case n.cow.less(item, inTree):
+			// no change, we want first split node
+		case n.cow.less(inTree, item):
+			i++ // we want second split node
+			indexSet[len(indexSet)-1]++
+		default:
+			out := n.items[i]
+			n.items[i] = item
+			return out, true, indexSet
+		}
+	}
+	return n.mutableChild(i).insertWithIndex(item, maxItems, indexSet)
 }
 
 // insert inserts an item into the subtree rooted at this node, making sure
@@ -676,6 +719,51 @@ func (c *copyOnWriteContext[T]) freeNode(n *node[T]) freeType {
 	} else {
 		return ftNotOwned
 	}
+}
+
+// ReplaceOrInsertWithIndex adds the given item to the tree.  If an item in the tree
+// already equals the given one, it is removed from the tree and returned,
+// and the second return value is true.  Otherwise, (zeroValue, false, index)
+// Index represents sequential ordered position/placement.
+//
+// nil cannot be added to the tree (will panic).
+func (t *BTreeG[T]) ReplaceOrInsertWithIndex(item T) (_ T, _ bool, _ int) {
+	if t.root == nil {
+		t.root = t.cow.newNode()
+		t.root.items = append(t.root.items, item)
+		t.length++
+		return
+	} else {
+		t.root = t.root.mutableFor(t.cow)
+		if len(t.root.items) >= t.maxItems() {
+			item2, second := t.root.split(t.maxItems() / 2)
+			oldroot := t.root
+			t.root = t.cow.newNode()
+			t.root.items = append(t.root.items, item2)
+			t.root.children = append(t.root.children, oldroot, second)
+			t.root.resize()
+		}
+	}
+	out, outb, indexSet := t.root.insertWithIndex(item, t.maxItems(), nil)
+	if !outb {
+		t.length++
+	}
+	index := 0
+	if len(indexSet) != 0 {
+		index = indexSet[len(indexSet)-1]
+		indexSet = indexSet[:len(indexSet)-1]
+		if len(indexSet) != 0 {
+			n := t.root
+			for _, stopIndex := range indexSet {
+				index += stopIndex
+				for j := 0; j < stopIndex; j++ {
+					index += n.children[j].size
+				}
+				n = n.children[stopIndex]
+			}
+		}
+	}
+	return out, outb, index
 }
 
 // ReplaceOrInsert adds the given item to the tree.  If an item in the tree
