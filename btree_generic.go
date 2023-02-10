@@ -297,7 +297,7 @@ func (n *node[T]) maybeSplitChild(i, maxItems int) bool {
 	return true
 }
 
-// insert inserts an item into the subtree rooted at this node, making sure
+// insertWithIndex inserts an item into the subtree rooted at this node, making sure
 // no nodes in the subtree exceed maxItems items.  Should an equivalent item be
 // be found/replaced by insert, it will be returned. IndexSet holds children
 // index path to inserted element; last indexSet element is inserted item index.
