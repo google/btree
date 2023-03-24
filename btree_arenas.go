@@ -18,6 +18,11 @@ func (s items[T]) DeepCopyWithArena(a *arena.Arena) items[T] {
 
 func (n *node[T]) DeepCopyWithArena(a *arena.Arena) *node[T] {
 	n2 := arena.New[node[T]](a)
+
+	if n == nil {
+		return n2
+	}
+
 	n2.items = n.items.DeepCopyWithArena(a)
 	n2.children = n.children.DeepCopyWithArena(a)
 

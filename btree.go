@@ -217,9 +217,17 @@ func (n *node[T]) Less(*node[T]) bool {
 }
 
 func (n *node[T]) DeepCopy() *node[T] {
-	n2 := &node[T]{
-		items:    n.items.DeepCopy(),
-		children: n.children.DeepCopy(),
+	n2 := &node[T]{}
+
+	if n == nil {
+		return n2
+	}
+
+	if n.items != nil {
+		n2.items = n.items.DeepCopy()
+	}
+	if n.children != nil {
+		n2.children = n.children.DeepCopy()
 	}
 
 	return n2
