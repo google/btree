@@ -85,12 +85,12 @@ func BenchmarkBothDeepCopy(b *testing.B) {
 	})
 
 	b.Run(`DeepCopyWithArena`, func(b *testing.B) {
+		a := arena.NewArena()
 		for i := 0; i < b.N; i++ {
-			a := arena.NewArena()
 			tr2 := tr.DeepCopyWithArena(a)
 			tr2.Len()
-			a.Free()
 		}
+		a.Free()
 		runtime.GC()
 	})
 }
