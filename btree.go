@@ -684,7 +684,7 @@ func (t *BTree[T]) AscendRange(greaterOrEqual, lessThan T, iterator ItemIterator
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, optional[T](greaterOrEqual), optional[T](lessThan), true, false, iterator)
+	t.root.iterate(ascend, optional(greaterOrEqual), optional(lessThan), true, false, iterator)
 }
 
 // AscendLessThan calls the iterator for every value in the tree within the range
@@ -693,7 +693,7 @@ func (t *BTree[T]) AscendLessThan(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, empty[T](), optional[T](pivot), false, false, iterator)
+	t.root.iterate(ascend, empty[T](), optional(pivot), false, false, iterator)
 }
 
 // AscendGreaterOrEqual calls the iterator for every value in the tree within
@@ -702,7 +702,7 @@ func (t *BTree[T]) AscendGreaterOrEqual(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(ascend, optional[T](pivot), empty[T](), true, false, iterator)
+	t.root.iterate(ascend, optional(pivot), empty[T](), true, false, iterator)
 }
 
 // Ascend calls the iterator for every value in the tree within the range
@@ -720,7 +720,7 @@ func (t *BTree[T]) DescendRange(lessOrEqual, greaterThan T, iterator ItemIterato
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, optional[T](lessOrEqual), optional[T](greaterThan), true, false, iterator)
+	t.root.iterate(descend, optional(lessOrEqual), optional(greaterThan), true, false, iterator)
 }
 
 // DescendLessOrEqual calls the iterator for every value in the tree within the range
@@ -729,7 +729,7 @@ func (t *BTree[T]) DescendLessOrEqual(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, optional[T](pivot), empty[T](), true, false, iterator)
+	t.root.iterate(descend, optional(pivot), empty[T](), true, false, iterator)
 }
 
 // DescendGreaterThan calls the iterator for every value in the tree within
@@ -738,7 +738,7 @@ func (t *BTree[T]) DescendGreaterThan(pivot T, iterator ItemIterator[T]) {
 	if t.root == nil {
 		return
 	}
-	t.root.iterate(descend, empty[T](), optional[T](pivot), false, false, iterator)
+	t.root.iterate(descend, empty[T](), optional(pivot), false, false, iterator)
 }
 
 // Descend calls the iterator for every value in the tree within the range
