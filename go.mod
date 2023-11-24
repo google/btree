@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-module sylr.dev/btree
+module sylr.dev/btree/v2
 
 go 1.20
