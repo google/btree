@@ -7,11 +7,11 @@ The API is based off of the wonderful
 http://godoc.org/github.com/petar/GoLLRB/llrb, and is meant to allow btree to
 act as a drop-in replacement for gollrb trees.
 
-See http://godoc.org/github.com/sylr/btree for documentation.
+See http://godoc.org/sylr.dev/btree for documentation.
 
 ## Fork disclaimer
 
-`github.com/sylr/btree` is a fork of [`github.com/google/btree`](https://github.com/google/btree)
+`sylr.dev/btree` is a fork of [`github.com/google/btree`](https://github.com/google/btree)
 with the following adaptations:
 
 - The copy-on-write mechanism has been removed
